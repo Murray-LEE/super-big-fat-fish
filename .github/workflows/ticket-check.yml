@@ -1,0 +1,30 @@
+name: ticket-check
+
+# 票板结构检查：有真问题就挂，别让人肉记着"有没有闭环"
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  board:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: 自检用例（工具本身没坏）
+        run: |
+          node tools/ticket-check-selftest.mjs
+          node tools/ticket-reply-selftest.mjs
+
+      - name: 票板结构检查
+        run: node tools/ticket-check.mjs --strict
+
+      - name: 六问闭环（只报告，不挡）
+        if: always()
+        run: node tools/ticket-check.mjs --loop || true
