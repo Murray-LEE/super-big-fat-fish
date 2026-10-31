@@ -1,0 +1,12 @@
+# 运行时 / 本地状态
+.backups/
+tmp/
+*.log
+.DS_Store
+Thumbs.db
+
+# 解包临时目录
+开票工作流-v*/
+
+# 个人／项目私有配置（别把真实线名、真实路径推进公共仓库）
+docs/.ticketrc.json

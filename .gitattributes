@@ -1,0 +1,7 @@
+# 这套工具对行尾敏感（票板混入 CRLF 会导致写盘被拒），仓库里一律用 LF
+* text=auto eol=lf
+*.mjs text eol=lf
+*.js  text eol=lf
+*.md  text eol=lf
+*.json text eol=lf
+*.mjs -diff
