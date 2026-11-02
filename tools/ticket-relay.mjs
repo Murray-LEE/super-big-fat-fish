@@ -145,11 +145,17 @@ const AUTHZ = (() => {
   if (/无|none|没人要/.test(o)) return 'none';
   return 'inferred';
 })();
+/* ★ T-20261103-F02：**线程**（稳定的锚 ✓）—— --thread <source:key> 才写 ✓ 不传就一个字都不写 ✗ */
+const THREAD = String(arg('--thread') || '').trim();
+if (THREAD && !/^[^:\s]+:[^:\s]+$/.test(THREAD)) {
+  die('--thread 要写成 source:key ✗ 收到：' + THREAD, '例：--thread dsh:panel-backfill ✓（冒号两边都不许有空格 ✗）');
+}
 const block = [
   '## [ ] [' + FROM_N + '→' + TO_N + '] ' + TITLE + '（' + stamp + '）',
   '',
   '**票号**：' + ID,
   '**负责人**：' + TO_N + '｜**验收方**：' + FROM_N,
+  ...(THREAD ? ['**线程**：' + THREAD] : []),
   '**授权强度**：' + AUTHZ + (ORIGIN ? '（来源：' + ORIGIN + '）' : '（缺省 inferred ✗ 来源没写 ⇒ 先当"自己推断的"✓）'),
   '**阻塞**：无',
   '',

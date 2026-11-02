@@ -266,8 +266,34 @@ if (QUEUE) {
       console.log('         → 派给 ' + (d && d.target ? '@' + d.target : '（没写目标 ✗）') + '｜' + flag + (r.id ? '｜' + r.id : ''));
     }
   }
+  /* ★ T-20261103-F02：**同线程多票**（提示 ✓ 不是错误 ✗ 不挡任何动作）+ **WIP 上限提示**
+     线程是稳定的锚（**线程**：source:key）⇒ 同线程 ≥2 张活跃票时人要知道；
+     旧票没有这个字段 ⇒ 分组为空 ⇒ 什么都不打印 ✓ 与改动前逐字相同 ✓ */
+  {
+    const byThread = new Map();
+    for (const r of [...q.open, ...q.accept]) {
+      const th = String(r.thread || '').trim();
+      if (!th) continue;
+      if (!byThread.has(th)) byThread.set(th, []);
+      byThread.get(th).push(r);
+    }
+    const multi = [...byThread].filter(([, list]) => list.length >= 2);
+    if (multi.length) {
+      console.log('');
+      for (const [th, list] of multi) {
+        console.log('🔗 同线程多票：**' + th + '** ⇒ ' + list.map((x) => (x.id || '(无票号)')).join('／')
+          + '（提示 ✓ 不是错误 ✗ 同线程的活建议连着做完 ✓）');
+      }
+    }
+    const wipLimit = Number((CFG.cfg && CFG.cfg.wipLimit) || 8) || 8;
+    const wip = q.open.length;                       // [ ] + [~]
+    if (wip > wipLimit) {
+      console.log('');
+      console.log('⚠ 活跃票 ' + wip + ' 张（[ ]+[~]），建议同时不超过 ' + wipLimit + ' 张（只提示 ✓ 不报错 ✗ docs/.ticketrc.json 的 wipLimit 可改）');
+    }
+  }
   console.log('');
-  console.log('注：这只是"谁该动"的清单 ✓ 不代表做没做对 ✗');
+  console.log('注：这只是""谁该动""的清单 ✓ 不代表做没做对 ✗');
   finish(0);
 }
 

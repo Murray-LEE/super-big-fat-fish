@@ -336,7 +336,7 @@ export function queueOf(tickets) {
     const isReplied = (o) => replied.has(canonOf(o));
     const repliedOwners = owners.filter(isReplied);
     return {
-      line: t.line, id: t.id || '', route: t.route, title: t.title, state: t.state,
+      line: t.line, id: t.id || '', route: t.route, title: t.title, state: t.state, thread: threadOf(t),
       owner, acceptor: pick(t, '验收方'),
       owners, repliedOwners,
       pendingOwners: owners.filter(o => !isReplied(o)),
@@ -494,6 +494,24 @@ export function fieldOf(t, name) {
   for (const l of t.bodyLines || []) {
     const m = re.exec(l);
     if (m) return m[1].trim();
+  }
+  return '';
+}
+
+/** ★ T-20261103-F02：票面的**线程**（`**线程**：source:key`）—— 稳定的锚 ✓
+ *  没有这一行就返回空串 ✓ 旧票行为完全不变（调用方据此跳过一切线程逻辑）*/
+export function threadOf(t) {
+  /* ★ T-20261103-F02 打回后（2026-11-03）：**必须锚行首** ✗
+     现场：`**来由**：我写了一句「解析线程：同线程的后续票」` ⇒ 用 fieldOf 会从散文里截出
+     `"同线程的后续票」——这不是字段。"` ✗ 旧票被误判成有线程 ✗
+     ⇒ 整行只允许 `**线程**：source:key`（前后不许有别的字）✓ 值还要是 `a:b` 两段式 ✓
+     为什么不动 `fieldOf` 本身：`**负责人**：X｜**验收方**：Y` 写在同一行，锚行首会取不到验收方 ✗ */
+  const re = /^\s*(?:\*\*)?线程(?:\*\*)?\s*[：:]\s*(\S+)\s*$/;
+  for (const l of t.bodyLines || []) {
+    const m = re.exec(String(l));
+    if (!m) continue;
+    const v = String(m[1]).trim();
+    return /^[^:\s]+:[^:\s]+$/.test(v) ? v : '';   // 形状不对 ⇒ 当没写 ✓（不猜 ✗）
   }
   return '';
 }

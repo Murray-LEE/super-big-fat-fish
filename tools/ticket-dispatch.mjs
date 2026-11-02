@@ -24,7 +24,7 @@ import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseTickets, queueOf } from './lib/ticket-lint.mjs';
-import { writeBoardGuarded } from './lib/ticket-write.mjs';
+import { writeBoardGuarded, writeAtomic } from './lib/ticket-write.mjs';
 import { W, glossaryText } from './lib/theme.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -73,6 +73,7 @@ const push = (kind, t, who, why) => rows.push({
   title: String(t.title || '').replace(/^\[[^\]]*\]\s*/, '').slice(0, 60),
   dispatched: dispOf(t).length,
   hours: hoursSince(t),
+  thread: String(t.thread || '').trim(),
 });
 
 for (const t of q.open || []) {
@@ -111,7 +112,7 @@ if (JSONOUT) {
     if (actionable.length) {
       console.log('\n调度会话要做的事（一次一张，别群发）：');
       for (const r of actionable.slice(0, 8)) {
-        console.log(`  · cross_session_send → ${r.who}：「${r.id}｜${r.title}（${r.kind}）」`);
+        console.log(`  · cross_session_send → ${r.who}：「${r.id}｜${r.title}（${r.kind}）${r.thread ? '〔线程 ' + r.thread + '〕' : ''}」`);
       }
     }
   }
@@ -145,12 +146,35 @@ if (WRITE && actionable.length && !DRY) {
   console.log(`\n（--dry-run：会记 ${actionable.length} 条，未写）`);
 }
 
+/* ── ★ T-20261103-F02：**决策日志**（append-only · 一行一决策） ──
+   为什么：我们只记"派了"，不记"为什么没派" ⇒ 被问"这票怎么没人动"时答不上来 ✗
+   列：时间 | 票号或线程 | 决定 | 理由代码 | 依据
+   写入：走 ticket-write 的锁＋原子写 ✗ 不许裸 writeFileSync ✗（不存在则先原子建文件 ✓）*/
+if (WRITE && !DRY && rows.length) {
+  const stamp2 = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Hong_Kong' }).slice(0, 16);
+  const REASON = { '待派': 'dispatched', '该催': 'reminded', '待验收': 'accepted', '已派待回': 'skipped-recent', '缺负责人': 'missing-owner', '缺验收方': 'missing-acceptor' };
+  const LOGF = path.resolve(ROOT, 'docs/决策日志.md');
+  const HEAD = '# 决策日志（append-only · 一行一决策）\n\n> 列：时间 | 票号或线程 | 决定 | 理由代码 | 依据\n\n';
+  const entries = rows.map((r) => stamp2 + ' | ' + (r.thread || r.id || '—') + ' | ' + r.kind + ' | ' + (REASON[r.kind] || 'skipped-recent') + ' | ' + String(r.why || '').replace(/\|/g, '／'));
+  const existed = existsSync(LOGF);
+  const before = existed ? readFileSync(LOGF, 'utf8') : HEAD;
+  const after = String(before).replace(/\s*$/, '') + '\n' + entries.join('\n') + '\n';
+  if (!existed) {
+    writeAtomic(LOGF, after);
+    console.log(`\n✓ 已新建决策日志：${path.relative(ROOT, LOGF)}（${entries.length} 行）`);
+  } else {
+    const res2 = writeBoardGuarded({ file: LOGF, before, after, who: 'ticket-dispatch' });
+    if (res2 && res2.ok === false) console.error('✗ 决策日志追加失败：' + (res2.code || res2.error || '未知'));
+    else console.log(`\n✓ 决策日志 +${entries.length} 行（${path.relative(ROOT, LOGF)}）`);
+  }
+}
+
 /* ── 给调度会话的输出文件 ── */
 if (EMIT) {
   const out = {
     schemaVersion: 1, agent: AGENT, board: path.relative(ROOT, BOARD),
     generatedAt: new Date().toISOString(), thresholdHours: HOURS,
-    tasks: actionable.map(r => ({ id: r.id, kind: r.kind, to: r.who, title: r.title, why: r.why })),
+    tasks: actionable.map(r => ({ id: r.id, kind: r.kind, to: r.who, title: r.title, why: r.why, thread: r.thread || '' })),
   };
   const p = path.resolve(EMIT);
   writeFileSync(p, JSON.stringify(out, null, 1), 'utf8');

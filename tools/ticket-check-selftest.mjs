@@ -7,7 +7,7 @@
  *
  * 跑法：node tools\ticket-check-selftest.mjs       全绿 exit 0 ✓ 有红 exit 1
  */
-import { lintTickets, lintHandoffPointers, buildReport, snapshotOf, queueOf, closedLoop, releaseTier, KIND_CODES } from './lib/ticket-lint.mjs';
+import { lintTickets, lintHandoffPointers, buildReport, snapshotOf, queueOf, closedLoop, releaseTier, KIND_CODES, parseTickets, threadOf } from './lib/ticket-lint.mjs';
 import { writeBackup } from './lib/ticket-move.mjs';
 import { impersonatedOf } from './lib/ticket-lint.mjs';
 import { planMoves } from './lib/ticket-move.mjs';
@@ -1542,6 +1542,19 @@ expect('93（P1）：已派活 + 无回票 ⇒ 进 --queue 催办；有回票 �
   const withReply = noReply + '\n> ✅ **【11:00 · 调试工程师】** 回「派活测试票」（T-20261101-D90）\n';
   const q2 = queueOf(lintTickets(withReply, { since: '2026-10-01' }).tickets);
   assert.equal(q2.dispatched.length, 0, '回过票就不该再催 ✗');
+});
+
+// ── 94. T-20261103-F02 打回后：`线程` 必须锚行首，正文里的「线程：」不算字段 ──
+expect('94（F02 打回）：散文里的「线程：」不许被当成字段（threadOf 必须锚行首）', () => {
+  const mk = (body) => parseTickets('## [ ] [流程管理员→调试工程师] 线程用例\n\n**票号**：T-20261103-D01\n**负责人**：调试工程师｜**验收方**：流程管理员\n' + body + '\n').tickets[0];
+  const prose = mk('**来由**：我写了一句「解析线程：同线程的后续票」——这不是字段。');
+  assert.equal(threadOf(prose), '', '散文里的「线程：」被当成字段了 ✗ 实际：' + JSON.stringify(threadOf(prose)));
+  const good = mk('**线程**：dsh:panel-backfill');
+  assert.equal(threadOf(good), 'dsh:panel-backfill', '正常线程字段要认得出 ✗');
+  const badShape = mk('**线程**：没有冒号的值');
+  assert.equal(threadOf(badShape), '', '不是 source:key 形状 ⇒ 当没写 ✗');
+  const inline = mk('**线程**：dsh:x 后面还有别的话');
+  assert.equal(threadOf(inline), '', '字段行后面带散文 ⇒ 当没写 ✗');
 });
 
 console.log('');
