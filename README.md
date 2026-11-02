@@ -75,20 +75,21 @@ node dist/super-big-fat-fish-v<最新>.mjs --out .
 
 ## 目录
 
+### 仓库里**现在就有**的
+
 ```
 .
 ├─ README.md
 ├─ LICENSE
 ├─ .gitignore
+├─ .gitattributes
 ├─ docs/
-│  ├─ 待办.md                        ← 票板（唯一的真相）
-│  ├─ 交接.md                        ← 每次收工追加一行
-│  ├─ 角色分工.md                    ← 谁能动哪些文件
-│  ├─ .ticketrc.json                 ← 配置（线名／阈值／票号）
-│  ├─ 开票工作流-优化版-*.md          ← 规范全文
+│  ├─ 待办.md                        ← 空票板模板（装上后这就是你的票板）
+│  ├─ .ticketrc.json.example          ← 配置模板（复制成 .ticketrc.json 再改）
+│  ├─ 开票工作流-优化版-2026-10-25.md  ← 规范全文
 │  ├─ 开票系统-工作流教程.md          ← 手把手教程
 │  ├─ 实装与使用说明.md               ← 装法与验收
-│  └─ 开票工作流-v1.10-修复清单.md    ← 修过什么、为什么
+│  └─ 开票工作流-修复清单-2026-10-26.md ← 修过什么、为什么
 ├─ tools/
 │  ├─ ticket-relay.mjs               ← 开锅：传话 → 开票
 │  ├─ ticket-reply.mjs               ← 冒个泡 / 收碗（含行尾自动归一）
@@ -110,8 +111,20 @@ node dist/super-big-fat-fish-v<最新>.mjs --out .
 │  ├─ lib/                           ← ticket-lint / ticket-write / theme …
 │  └─ schema/                        ← ticket-check.schema.json
 └─ dist/
-   └─ super-big-fat-fish-v<版本>.mjs   ← 每次发布会多一个（ASCII 名）
+   └─ super-big-fat-fish-v<版本>.mjs  ← 每次发布会多一个（ASCII 名）
 ```
+
+### 装上之后**才会生成**的（不在仓库里）
+
+```
+docs/待办.md           ← 你的真票板（仓库里那份是空模板，`install.mjs` 会按需生成）
+docs/交接.md           ← 每次收工追加一行（你自己建，教程里有格式）
+docs/角色分工.md        ← 谁能动哪些文件（可选，团队协作时才有意义）
+docs/.ticketrc.json    ← 你的线名/阈值（.**gitignore 里，不会进仓库**）
+.backups/              ← 每次写票板前的快照（.gitignore）
+```
+
+> ⚠ 这三个 `docs/` 下的运行文件**故意不进仓库**：它们记的是**你这个项目**的票和线名，不是工具的一部分。
 
 ---
 
