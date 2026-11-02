@@ -379,7 +379,7 @@ action: 改完 tools/ 必须 pack-release --pack 并跑 --check
 `ticket-dispatch` 派活时，拿票的标题与正文去匹配：
 
 ```
-· cross_session_send → 调试工程师：「T-…｜改 tools 后要重打包（待派）」
+· cross_session_send → 开工：「T-…｜改 tools 后要重打包（待派）」
     └ 经验：repack-after-tools —— 改完 tools/ 必须 pack-release --pack 并跑 --check
 ```
 
