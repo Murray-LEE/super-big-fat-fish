@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Murray-LEE/super-big-fat-fish/tools/schema/ticket-check.schema.json",
+  "title": "ticket-check --json 输出（schemaVersion 1）",
+  "description": "契约：字段**只加不改名** ✓ 语义变了就开 schemaVersion 2 ✗。本文件是文档 + 校验依据（tools/json-contract-check.mjs 用零依赖方式核对要点）。",
+  "type": "object",
+  "required": ["schemaVersion", "tool", "file", "tickets", "summary", "problems"],
+  "properties": {
+    "schemaVersion": { "const": 1 },
+    "tool": { "const": "ticket-check" },
+    "file": { "type": "string", "description": "被检查的票板相对路径" },
+    "debtSince": { "type": "string", "description": "历史债划代时刻" },
+    "tickets": {
+      "type": "object",
+      "required": ["total", "states"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "states": {
+          "type": "object",
+          "required": ["open", "claimed", "pendingAccept", "done", "cancelled", "legacyFormat"],
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "additionalProperties": true
+    },
+    "summary": {
+      "type": "object",
+      "required": ["real", "debt", "unknown", "total", "knownReal", "unclassified", "assumedDebt", "byKindReal", "byKindDebt"],
+      "properties": {
+        "real": { "type": "integer", "minimum": 0, "description": "真问题（含 unknown 子集）" },
+        "debt": { "type": "integer", "minimum": 0 },
+        "unknown": { "type": "integer", "minimum": 0 },
+        "total": { "type": "integer", "minimum": 0 },
+        "knownReal": { "type": "integer", "minimum": 0, "description": "real − unknown − unclassified" },
+        "unclassified": { "type": "integer", "minimum": 0 },
+        "assumedDebt": { "type": "boolean", "description": "--assume-debt 是口径选择，不改判定" },
+        "byKindReal": { "type": "object", "additionalProperties": { "type": "integer" } },
+        "byKindDebt": { "type": "object", "additionalProperties": { "type": "integer" } }
+      },
+      "additionalProperties": true
+    },
+    "problems": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "line", "title"],
+        "properties": {
+          "kind": { "type": "string", "description": "中文 kind 字面值（冻结，不改名）" },
+          "code": { "type": "string", "description": "英文稳定码（一义一码）" },
+          "line": { "type": "integer", "minimum": 1 },
+          "ticketLine": { "type": "integer", "minimum": 1 },
+          "title": { "type": "string" },
+          "detail": { "type": "string" },
+          "debt": { "type": "boolean" },
+          "unknown": { "type": "boolean" },
+          "unclassified": { "type": "boolean" },
+          "ticket": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "exitCode": { "type": "integer", "enum": [0, 1], "description": "P6：--strict 下的退出码语义，机器可读" },
+    "gates": {
+      "type": "object",
+      "properties": {
+        "strict": { "type": "boolean" },
+        "strictFails": { "type": "integer", "minimum": 0 },
+        "staleLock": { "type": "boolean" }
+      },
+      "additionalProperties": true
+    },
+    "lock": {
+      "type": "object",
+      "properties": {
+        "exists": { "type": "boolean" },
+        "stale": { "type": "boolean" },
+        "ageMs": { "type": ["integer", "null"] },
+        "holder": { "type": ["object", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "snapshot": {
+      "type": "object",
+      "properties": {
+        "at": { "type": "string" },
+        "lines": { "type": "integer" },
+        "chars": { "type": "integer" },
+        "contentSha256": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "trial": { "type": "object" },
+    "scope": { "type": "object" },
+    "config": { "type": "object" },
+    "handoff": { "type": ["object", "null"] }
+  },
+  "additionalProperties": true
+}

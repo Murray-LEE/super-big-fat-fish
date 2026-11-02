@@ -934,13 +934,28 @@ expect('52（责任点名）：阻塞写"等你们确认" ⇒ 判"阻塞没写�
 expect('53（责任点名）：ticket-relay 把别名/代号归一成标准名再写票', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'relay53-'));
   try {
+    // ★ 2026-11-02：**必须在没有 docs/.ticketrc.json 的隔离根里跑** ✗
+    //   本用例断言的是"**内置默认线名**"（流程管理员／发布工程师…）✓
+    //   而线名一旦被配置覆盖（样例配置就是 流程／开发／验收），这些断言就不成立 ✗
+    //   症状离原因很远：新项目装完（install.mjs 会拷样例配置）自检立刻报红，可工具本身没坏 ✗
+    //   ⇒ 拷一份 tools 到临时根（ROOT 变成临时根 ⇒ 读不到配置 ⇒ 走默认名 ✓）
+    cpSync(path.dirname(CHECK_CLI), path.join(dir, 'tools'), { recursive: true });
+    const ISO_RELAY = path.join(dir, 'tools', 'ticket-relay.mjs');
+    const runIso = (args) => {
+      try {
+        const out = execFileSync(process.execPath, [ISO_RELAY, ...args], { encoding: 'utf8', stdio: 'pipe' });
+        return { code: 0, out: String(out) };
+      } catch (e) {
+        return { code: e.status, out: String(e.stdout || '') + String(e.stderr || '') };
+      }
+    };
     const f = path.join(dir, 'b.md');
     writeFileSync(f, '## [x] [C→D] 已有（2026-10-27 03:00 UTC+8）\n**票号**：T-20261027-D01\n**负责人**：调试｜**验收方**：卡片\n');
-    const r = runRelay(['--from', '流程', '--to', '线上', '--title', '归一测试', '--file', f]);
+    const r = runIso(['--from', '流程', '--to', '线上', '--title', '归一测试', '--file', f]);
     assert.equal(r.code, 0, '应 exit 0，实际 ' + r.code + '：' + r.out.slice(0, 120));
     assert.ok(r.out.includes('[流程管理员→发布工程师]'), '路由要归一成职务：' + r.out.slice(0, 200));
     assert.ok(r.out.includes('**负责人**：发布工程师｜**验收方**：流程管理员'), '字段要归一成职务');
-    const bad = runRelay(['--from', '流程线', '--to', '你们', '--title', 'x', '--file', f]);
+    const bad = runIso(['--from', '流程线', '--to', '你们', '--title', 'x', '--file', f]);
     assert.equal(bad.code, 2, '--to 写代指应 exit 2，实际 ' + bad.code);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
@@ -1492,6 +1507,41 @@ expect('88（F05）：同一张补了 `**授权**：主人已确认` ⇒ 不报'
 expect('89（F05）：24h 内建的 inferred 票 ⇒ 不报（这条最容易被写成"一律报"✗）', () => {
   const t = staleTicket(nowStamp());
   assert.equal(staleN(t, '授权待补'), 0, '24h 内不许催 ✗');
+});
+
+// ── 90–93. P1（2026-11-02）：派活记录落票板 ─────────────────────────────
+//   为什么要有：派活原来只在插件内存里 ✗ 重启丢去重集合 ⇒ 同一张票被派两次（README 三个坑之一）✗
+//   落到票板后：重复派活能查（真问题）✓ 派了多久没回票能催（queue）✓ 票板仍是唯一台账 ✓
+const dispatchedTicket = (extraLines = '') => [
+  '## [ ] [流程管理员→调试工程师] 派活测试票（2026-11-01 10:00 UTC+8）', '',
+  '**票号**：T-20261101-D90',
+  '**负责人**：调试工程师｜**验收方**：流程管理员',
+  '**阻塞**：无', '**验收方式**：`node x`',
+  extraLines, ''
+].join('\n');
+const dupCount = (txt) => lintTickets(txt, { since: '2026-10-01' }).problems.filter((p) => p.kind === '重复派活').length;
+
+expect('90（P1）：一张票两条派活记录 ⇒ 报「重复派活」', () => {
+  assert.equal(dupCount(dispatchedTicket('**派活**：@调试工程师 2026-11-01 10:05\n**派活**：@调试工程师 2026-11-01 11:05')), 1, '重复派活必须报 ✗');
+});
+
+expect('91（P1）：只有一条派活记录 ⇒ 不报', () => {
+  assert.equal(dupCount(dispatchedTicket('**派活**：@调试工程师 2026-11-01 10:05')), 0, '一条不许报 ✗');
+});
+
+expect('92（P1）：代码块/行内代码里的"派活"不算记录 ⇒ 不报重复', () => {
+  const t = dispatchedTicket('**派活**：@调试工程师 2026-11-01 10:05\n\n```\n**派活**：@调试工程师 2026-11-01 11:05\n```\n\n行内样例 `**派活**：@调试工程师 2026-11-01 12:05`');
+  assert.equal(dupCount(t), 0, '代码块/行内代码里的样例不算 ✗（否则抄个格式就报错 ✗）');
+});
+
+expect('93（P1）：已派活 + 无回票 ⇒ 进 --queue 催办；有回票 ⇒ 移出', () => {
+  const noReply = dispatchedTicket('**派活**：@调试工程师 2026-11-01 10:05');
+  const q1 = queueOf(lintTickets(noReply, { since: '2026-10-01' }).tickets);
+  assert.equal(q1.dispatched.length, 1, '派活未回票应进催办 ✗');
+  assert.equal(q1.dispatched[0].dispatch[0].target, '调试工程师', '要能读出派给谁 ✗');
+  const withReply = noReply + '\n> ✅ **【11:00 · 调试工程师】** 回「派活测试票」（T-20261101-D90）\n';
+  const q2 = queueOf(lintTickets(withReply, { since: '2026-10-01' }).tickets);
+  assert.equal(q2.dispatched.length, 0, '回过票就不该再催 ✗');
 });
 
 console.log('');

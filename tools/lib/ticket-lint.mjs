@@ -83,10 +83,30 @@ export function parseTickets(text) {
       .filter(r => r.start >= h.i + 1 && r.start < end)
       .map(r => ({ ...r, start: r.start, end: r.end }));
     const replyLines = replies.flatMap(r => r.lines);
+    // ★ P1（2026-11-02）：**派活记录**落票板 —— `**派活**：@调试 2026-11-02 10:13`
+    //   为什么要有：派活原本只存在于插件内存与会话里 ✗ 脚本一重启去重集合就丢
+    //   ⇒ 同一张票会被派第二次（README 自己列的三个坑之一）✗
+    //   落到票板上以后：① 重复派活能查 ② "派了多久还没回票"能催 ③ 票板仍是唯一台账 ✓
+    //   边界与回票记录同一套：只认本块、非代码块、非行内代码 ✓（bareLines 已剥过）
+    const dispatch = [];
+    for (let li = 0; li < bareLines.length; li++) {
+      const dm = /^\s*(?:\*\*)?派活(?:\*\*)?\s*[：:]\s*(.*)$/.exec(bareLines[li]);
+      if (!dm) continue;
+      const rest = dm[1].trim();
+      const tm = /(20\d\d-\d\d-\d\d)[ T](\d{1,2}:\d{2})/.exec(rest);
+      const target = (rest.replace(/(20\d\d-\d\d-\d\d)[ T]\d{1,2}:\d{2}/, '').match(/@?([^\s@，,]+)/) || [, ''])[1] || '';
+      let atMs = null;
+      if (tm) {
+        const ms = new Date(+tm[1].slice(0, 4), +tm[1].slice(5, 7) - 1, +tm[1].slice(8, 10),
+          +tm[2].split(':')[0], +tm[2].split(':')[1]).getTime();
+        atMs = Number.isNaN(ms) ? null : ms;
+      }
+      dispatch.push({ target, at: tm ? tm[1] + ' ' + tm[2] : '', atMs, raw: rest, line: h.i + 2 + li });
+    }
     return {
       line: h.i + 1, raw: lines[h.i], state: h.state, route: h.route, title: h.title, bad: h.bad,
       end, body, bodyRaw, bodyLines: bareLines, decls, id: uniq.length === 1 ? uniq[0] : '', idConflict: uniq.length > 1,
-      replies, replyLines, reply: replyLines.join('\n')
+      replies, replyLines, reply: replyLines.join('\n'), dispatch
     };
   });
   // "回票落在票块外"：v1.10 起只在**真正的回票记录**里找候选 ✗ 不再扫原始文字 ✗（C05）
@@ -193,6 +213,10 @@ export function buildReport(res, meta = {}) {
     problems: problems.map(p => ({ kind: p.kind, code: p.code || '', line: p.line, ticketLine: p.ticketLine || p.line, title: p.title, detail: p.detail || '', debt: !!p.debt, unknown: !!p.unknown, unclassified: !!p.unclassified, ticket: p.ticket || '' })),
     trial: { since: trial.since, sample: trial.n, replies: trial.replies, claim: trial.claim, cited: trial.cited, labeled: trial.labeled, dateClash: trial.dateClash },
     ...(meta.snapshot ? { snapshot: meta.snapshot } : {}),
+    // ★ P6（2026-11-02）：门禁结果进 JSON —— 以前下游只能从 stderr 文字猜"门禁过没过" ✗
+    //   口径：字段**只加不改名** ✓ schemaVersion 仍是 1 ✓
+    ...(meta.exitCode !== undefined ? { exitCode: meta.exitCode } : {}),
+    ...(meta.gates ? { gates: meta.gates } : {}),
     ...(meta.config ? { config: meta.config } : {}),
     ...(meta.handoff ? { handoff: meta.handoff } : {})
   };
@@ -316,14 +340,19 @@ export function queueOf(tickets) {
       owner, acceptor: pick(t, '验收方'),
       owners, repliedOwners,
       pendingOwners: owners.filter(o => !isReplied(o)),
-      multi: owners.length > 1
+      multi: owners.length > 1,
+      // ★ P1（2026-11-02）：派活状态进队列 —— 派了多久没回票，是"催办"而不是"该动" ✓
+      dispatch: t.dispatch || [], replyCount: (t.replies || []).length
     };
   }).map(r => ({ ...r, ownerIsCode: isCode(r.owner), acceptorIsCode: isCode(r.acceptor) }));
   return {
     open: rows.filter(r => r.state === ' ' || r.state === '~'),
     accept: rows.filter(r => r.state === 'v'),
     missing: rows.filter(r => (r.state === ' ' || r.state === '~') && !r.owner),
-    missingAcceptor: rows.filter(r => r.state === 'v' && !r.acceptor)
+    missingAcceptor: rows.filter(r => r.state === 'v' && !r.acceptor),
+    // ★ P1（2026-11-02）：已派活但**一条回票都没有** ⇒ 催办清单 ✓（不是"该动"，是"该催"✓）
+    //   这张清单以前不存在 ⇒ 派出去之后只能靠人记着 ✗ 现在票板自己会算 ✓
+    dispatched: rows.filter(r => (r.state === ' ' || r.state === '~') && r.dispatch.length > 0 && r.replyCount === 0)
   };
 }
 
@@ -349,6 +378,8 @@ export const KIND_CODES = {
   '授权强度不足': 'authorization-weak',
   // ★ T-20261101-F05：**躺在 `[ ]` 里超 24h 还没补授权**（与 weak 不重复：weak 管"已动工"，这条管"没动工但放太久"）
   '授权待补': 'authorization-stale',
+  // ★ P1（2026-11-02）：同一张票被派了两次 ⇒ 收票方重复开工 ✗ 而且两边各回一次票，票板对不上 ✗
+  '重复派活': 'dispatch-duplicate',
   '阻塞没写清谁': 'blocker-vague',
   '缺验收方式': 'missing-acceptance-method',
   '疑似凭据': 'suspected-secret'
@@ -861,6 +892,13 @@ export function lintTickets(text, opt = {}) {
     }
     // ★ v1.8（2026-10-26 · 五线反馈）：票号只写在**标题**里、块内没有声明行 ✗
     //   不报的话，`--with-handoff` 会把它显示成"交接写错"✗ 人得猜是交接错还是票错 ✗
+    // ⑧ 重复派活（P1 · 2026-11-02）：同一张票有两条以上派活记录 ✗
+    //   为什么算**真问题**而不是提示：重复派活的代价是"两条线各做一遍 + 各回一张票"✗
+    //   而票板只认一张票 ⇒ 另一条线的活儿在台账里**不存在** ✗ 这比漏派更贵 ✗
+    if ((t.dispatch || []).length > 1) {
+      add('重复派活', t, '本票有 **' + t.dispatch.length + ' 条派活记录**（' + t.dispatch.map((d) => (d.target ? '@' + d.target : '无目标') + ' ' + (d.at || '无时间')).join(' / ') + '）✗'
+        + ' ⇒ 同一张票被派了多次，收票方会重复开工、各回一张票 ✗ 去重后再派 ✓（派活记录只该留最后一条 ✓）');
+    }
     if (!t.id && ID_RE.test(t.raw)) {
       add('票号只在标题', t, '票头标题里出现了票号，但块内没有 `**票号**：T-…` 声明行 ✗ —— 检查器只认声明 ✓（否则交接核对会指向"票不存在"✗）');
     }

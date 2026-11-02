@@ -248,7 +248,10 @@ const mkTempProject = () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'fj-proj-'));
   mkdirSync(path.join(dir, 'tools', 'lib'), { recursive: true });
   copyFileSync(path.join(HERE, 'ticket-reply.mjs'), path.join(dir, 'tools', 'ticket-reply.mjs'));
-  for (const f of ['ticket-lint.mjs', 'ticket-move.mjs']) {
+  // ★ P0（2026-11-02）：改成"拷 lib 下所有 .mjs" ✗ 别再手写清单 ✗
+  //   清单漏一个新文件 ⇒ 只有"真跑 CLI"的用例会挂（Cannot find module），而且只在临时项目根里挂 ✗
+  //   症状离原因很远 ⇒ 这次就是 ticket-write.mjs 没进清单，5 条用例集体失败 ✗
+  for (const f of readdirSync(path.join(HERE, 'lib')).filter((n) => n.endsWith('.mjs'))) {
     copyFileSync(path.join(HERE, 'lib', f), path.join(dir, 'tools', 'lib', f));
   }
   return { dir, cli: path.join(dir, 'tools', 'ticket-reply.mjs'), board: path.join(dir, 'board.md') };
