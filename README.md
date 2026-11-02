@@ -236,3 +236,77 @@ setInterval(async () => {
 文档里的例子会出现「卡」「世界书」「线上平台」这类词——那是原始项目的背景，**机制本身与它们无关**：换成「需求／文档／部署」一样成立。
 
 MIT License.
+
+---
+
+## 部署到一台新机器（照这个顺序，一条一条跑）
+
+> 目标：新机器上 **票板能用 ＋ 能把任务派给别的会话**。
+> 前两节是"纸和尺子"，第三节才是"派活能力"——**它不在这个仓库里**，得单独装。
+
+### ① 装好 Node 与仓库
+
+```bash
+node -v                 # 要 ≥ 18
+git clone <仓库地址> && cd super-big-fat-fish
+node tools/ticket-check.mjs            # 能跑就说明"纸和尺子"到位了
+```
+
+### ② 让票板指向你自己的项目
+
+```bash
+cp docs/.ticketrc.json.example docs/.ticketrc.json   # 改里面的线名
+node tools/ticket-check.mjs --queue                  # 谁该动
+```
+
+### ③ 装「派活」插件（这一步不能省，否则派不出去）
+
+先体检：
+
+```bash
+node tools/setup-plugins.mjs
+```
+
+它会查四件事并打印**这台机器上该跑的确切命令**：
+
+| 检查项 | 不满足会怎样 |
+|---|---|
+| Node ≥ 18 | 工具与自检跑不起来 |
+| DSH 数据目录（`~/.dsh`） | 这台机器没装 DSH 桌面版 ⇒ 只能手动开票回票 |
+| DSH 程序位置 | 找不到就没法自动装，得手动 `dsh plugin add` |
+| profile 里有没有 `dsh-cross-session-approval` | 没有 ⇒ 会话里没有 `cross_session_*` 那套工具 |
+
+体检通过后**自动装**：
+
+```bash
+node tools/setup-plugins.mjs --run --profile cs-team     # profile 换成你要用的
+node tools/setup-plugins.mjs --check                     # 齐了 exit 0
+```
+
+> 插件是**按 profile 挂的**：装进 `desktop` ⇒ 那个 profile 的每个会话都多出 10 个工具；
+> 想干净就用专用 profile（如 `cs-team`），只在那个 profile 里派活。
+
+### ④ 让人（或会话）知道该派什么
+
+```bash
+node tools/ticket-dispatch.mjs                  # 看板：谁该动、几张、多久没回
+node tools/ticket-dispatch.mjs --write          # 把「**派活**：@某人 时间」记进票块
+node tools/ticket-dispatch.mjs --emit docs/.dispatch-queue.json   # 给调度会话吃
+```
+
+退出码：`0` 有活可派｜`3` 票板干净。
+
+### ⑤ 调度者：**超级大肥鱼**
+
+`ticket-dispatch.mjs` 只负责**算账**（可测、可复跑、不碰网络）；
+真正"发消息"由调度会话说 `cross_session_send` 完成——它需要在装了插件的那个 profile 里。
+
+```
+每 30–60 分钟：
+  node tools/ticket-dispatch.mjs --write          # 算 + 记账
+  然后调度会话按看板逐条 cross_session_send（一次一张，别群发）
+```
+
+> 为什么不写成"脚本直接发消息"：会话通道是 DSH 插件的能力，不是命令行；
+> 脚本硬去写插件内部状态，等于把脆弱假设焊进流程。 **算账归脚本，发消息归会话 ✓**
+
