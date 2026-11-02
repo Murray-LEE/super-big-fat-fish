@@ -211,7 +211,9 @@ if (oldVer && oldVer !== VERSION) {
   if (leftover) die('版本替换后仍有 ' + leftover + ' 行留着旧版本 ' + oldVer, '模板里有写死的旧版本 ✗ 先清掉再打包 ✓');
 }
 
-const outName = '开票工作流-工具包-' + VERSION + '.单文件.mjs';
+// ★ 2026-11-02 改名：包名跟仓库名一致（ASCII）\
+//   为什么：GitHub Release 网页上传非 ASCII 文件名会被弄坏（现场：开票工作流-工具包-v1.10.55.单文件.mjs ⇒ '-.-v1.10.55.mjs'）✗\
+const outName = 'super-big-fat-fish-' + VERSION + '.mjs';
 const outPath = arg('--out') || path.join(DIST, outName);
 writeFileSync(outPath, out, 'utf8');
 

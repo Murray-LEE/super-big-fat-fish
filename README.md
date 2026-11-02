@@ -60,7 +60,7 @@ node tools/mk-proj.mjs                                       # 生成 docs/待�
 ### 方式 B：用单文件发行版（目标机没有网络或不想带目录）
 
 ```bash
-node dist/开票工作流-工具包-v<最新>.单文件.mjs --out .
+node dist/super-big-fat-fish-v<最新>.mjs --out .
 # <最新> 看 dist/ 里编号最大的那个（命令：node tools/pack-release.mjs --check 会打印）
 # 解出来是 docs/ tools/ README.md —— 把 tools/ 拿过去即可
 ```
@@ -110,7 +110,7 @@ node dist/开票工作流-工具包-v<最新>.单文件.mjs --out .
 │  ├─ lib/                           ← ticket-lint / ticket-write / theme …
 │  └─ schema/                        ← ticket-check.schema.json
 └─ dist/
-   └─ 开票工作流-工具包-v<版本>.单文件.mjs   ← 每次发布会多一个
+   └─ super-big-fat-fish-v<版本>.mjs   ← 每次发布会多一个（ASCII 名）
 ```
 
 ---
