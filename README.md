@@ -1,30 +1,36 @@
-# 开票工作流（kaipiao-workflow）
+# 🐋 超级大肥鱼 · 开票工作流（super-big-fat-fish）
 
-把「口头协作」变成三份可检索的文件，让「做完了没有」变成**能被机器检查**的东西。
+**一只负责统管全局的鲸鱼娘，替你把「口头协作」变成三份可检索的文件。**
 
-给那些**多个 agent 会话／多个人同时干一个项目**的场景用：谁该动、动了什么、什么事等着谁、有没有闭环，全在文件里，不靠记性。
+它的工作方式很朴素：你把活说出来，它**开锅**（新票进板）、**投喂**（派给该干的线）、等对方**冒个泡**（回票）、**尝味**（验收）、最后**收碗**（结票）。活儿游走一圈，票板上留下了痕迹——「做完了没有」不再靠记性，而是**能被机器检查**。
+
+给那些**多个 agent 会话／多个人同时干一个项目**的场景用：谁该动、动了什么、什么事等着谁、有没有闭环，全在文件里。
 
 - 零第三方依赖，Node ≥ 18
 - 单文件发行版，拷过去就能用
-- 线名、阈值、票号格式都可配
+- 线名（默认 **添饭／开工／尝味**）、阈值、票号格式都可配
+- 想换掉这些叫法：`node tools/lines.mjs`，或直接编辑 `docs/.ticketrc.json`
+
+> 名字来源：鲸鱼娘形象来自社区项目 [Neko3000/deepseek-whalechan](https://github.com/Neko3000/deepseek-whalechan)（DeepSeek 非官方同人）。
+> 这套工具本身与任何官方无关，命名只是彩蛋 ✓
 
 ---
 
 ## 30 秒上手
 
 ```bash
-# 0. 先定线名（不配也能跑，但默认线名是原作者项目里的，建议先改）
+# 0. 先定线名（默认就是彩蛋名：添饭／开工／尝味；不改也能跑）
 cp docs/.ticketrc.json.example docs/.ticketrc.json
-#   然后把里面的「流程／开发／验收」改成你自己团队的叫法
+#   想改成你自己的叫法：node tools/lines.mjs --set 前端,后端,QA
 #   ⚠ 「项目负责人」这个名字别改 —— 代回判定要认它
 
 # 1. 造一个合规样例项目（看看它长什么样）
 node tools/mk-proj.mjs
 
 # 2. 开一张票（默认只预演，加 --write 才落盘）
-node tools/ticket-relay.mjs --from 流程 --to 开发 \
+node tools/ticket-relay.mjs --from 添饭 --to 开工 \
      --title "把首页加载时间压到 1s 内" \
-     --why "产品负责人 2026-11-01 提的" \
+     --why "主人 2026-11-01 提的" \
      --accept "Lighthouse 跑分 ≥ 90 且回归全绿" \
      --origin 主人原话 --write
 
@@ -83,18 +89,27 @@ node 开票工作流-工具包-v1.10.41.单文件.mjs --out .
 │  ├─ 实装与使用说明.md               ← 装法与验收
 │  └─ 开票工作流-v1.10-修复清单.md    ← 修过什么、为什么
 ├─ tools/
-│  ├─ ticket-relay.mjs               ← 传话 → 开票
-│  ├─ ticket-reply.mjs               ← 回票 / 结票（含行尾自动归一）
+│  ├─ ticket-relay.mjs               ← 开锅：传话 → 开票
+│  ├─ ticket-reply.mjs               ← 冒个泡 / 收碗（含行尾自动归一）
 │  ├─ ticket-check.mjs               ← 结构自检 / 队列 / 六问闭环
+│  ├─ ticket-dispatch.mjs            ← 超级大肥鱼：算谁该动、记账
+│  ├─ ticket-archive.mjs             ← 洄游：旧票进归档池
+│  ├─ lines.mjs                      ← 线名：看 / 验 / 改名
+│  ├─ install.mjs                    ← 一键部署到新机器
+│  ├─ setup-plugins.mjs              ← 派活插件体检与安装引导
+│  ├─ pack-release.mjs               ← 发行包可复现（--check / --pack）
+│  ├─ verify-release.mjs             ← 发行包复验（解包逐条 grep）
+│  ├─ json-contract-check.mjs        ← JSON 契约（schemaVersion 1）
 │  ├─ ticket-titles.mjs              ← 标题规范化
 │  ├─ mk-proj.mjs                    ← 生成合规样例项目
 │  ├─ identity-check.mjs             ← 账目恒等式
-│  ├─ verify-release.mjs             ← 发行包复验（解包逐条 grep）
-│  ├─ ticket-check-selftest.mjs      ← 自检用例（89 条）
+│  ├─ ticket-check-selftest.mjs      ← 自检用例（93 条）
 │  ├─ ticket-reply-selftest.mjs      ← 回票用例（19 条）
-│  └─ lib/
+│  ├─ write-guard-selftest.mjs       ← 写入保护用例（10 条）
+│  ├─ lib/                           ← ticket-lint / ticket-write / theme …
+│  └─ schema/                        ← ticket-check.schema.json
 └─ dist/
-   └─ 开票工作流-工具包-v1.10.41.单文件.mjs
+   └─ 开票工作流-工具包-v1.10.50.单文件.mjs
 ```
 
 ---
@@ -103,7 +118,7 @@ node 开票工作流-工具包-v1.10.41.单文件.mjs --out .
 
 **① 票（Ticket）**：一张票 = 一件要有人做、要有人验收的事。票头一行就是状态：`[ ]` 待办／`[~]` 处理中／`[v]` 待验收／`[x]` 完成／`[-]` 作废。
 
-**② 三个字段是硬约束**：`负责人`／`验收方`／`阻塞`，只能写**线名**（`流程`／`开发`／`验收` 这种），写「你们」「下次」「各领自己那条」直接不合格。
+**② 三个字段是硬约束**：`负责人`／`验收方`／`阻塞`，只能写**线名**（默认 `添饭`／`开工`／`尝味`，别名 `流程`／`开发`／`验收` 也认），写「你们」「下次」「各领自己那条」直接不合格。
 
 **③ 回票要点名**：回票首行必须带 `回「原票标题」（T-…）`，否则会被判「回票未点名」——因为票板长了以后，靠位置猜归属一定会错。
 
