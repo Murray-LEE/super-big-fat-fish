@@ -1452,7 +1452,7 @@ expect('85（授权强度）：ticket-relay 缺省写 inferred；--origin 主人
     const r1 = runProjRelay(proj, ['--from', '调试工程师', '--to', '卡片工程师', '--title', '缺省', '--file', f]);
     assert.equal(r1.code, 0, r1.out.slice(0, 200));
     assert.ok(/授权强度\*\*：inferred/.test(r1.out), '缺省必须 inferred ✗：' + r1.out.slice(0, 300));
-    const r2 = runProjRelay(proj, ['--from', '调试工程师', '--to', '卡片工程师', '--title', '原话', '--origin', '主人原话', '--file', f]);
+    const r2 = runProjRelay(proj, ['--from', '调试工程师', '--to', '卡片工程师', '--title', '原话', '--origin', '主人原话', '--quote', '把这件事做了', '--file', f]);
     assert.equal(r2.code, 0, r2.out.slice(0, 200));
     assert.ok(/授权强度\*\*：explicit/.test(r2.out), '主人原话必须 explicit ✗：' + r2.out.slice(0, 300));
   } finally { rmSync(proj, { recursive: true, force: true }); }
@@ -1555,6 +1555,36 @@ expect('94（F02 打回）：散文里的「线程：」不许被当成字段（
   assert.equal(threadOf(badShape), '', '不是 source:key 形状 ⇒ 当没写 ✗');
   const inline = mk('**线程**：dsh:x 后面还有别的话');
   assert.equal(threadOf(inline), '', '字段行后面带散文 ⇒ 当没写 ✗');
+});
+
+// ── 95–96. T-20261103-F06 打回后：规则版本过期必须真的输出 ＋ 机械门拦住要有汇总行 ──
+expect('95（F06 打回）：票面规则版本 ≠ 当前配置 ⇒ 必须打「规则版本过期」且 exit 0', () => {
+  const proj = mkProj({ board: 'docs/待办.md', since: '2026-10-01', debtSince: '2025-10-01T00:00' });
+  try {
+    const f = path.join(proj, 'docs', '待办.md');
+    writeFileSync(f, '## [ ] [流程管理员→调试工程师] 规则版本票（2026-11-03 06:00 UTC+8）\n\n**票号**：T-20261103-D20\n**负责人**：调试工程师｜**验收方**：流程管理员\n**授权强度**：explicit\n**规则版本**：deadbeef\n**验收方式**：`node x`\n');
+    const r = runCheck(['--file', f]);
+    assert.ok(/规则版本过期/.test(r.out), '规则版本过期那节没输出（可能又是静默 catch ✗）：' + r.out.slice(-300));
+    assert.ok(/T-20261103-D20/.test(r.out), '要点名是哪张票 ✗');
+    assert.equal(r.code, 0, '只提示，不许报错 ✗ 实际 exit ' + r.code);
+  } finally { rmSync(proj, { recursive: true, force: true }); }
+});
+
+expect('96（F06 打回）：9 张活跃票 ⇒ dispatch 必须打「机械门拦住」汇总行', () => {
+  const proj = mkProj({ board: 'docs/待办.md', since: '2026-10-01', debtSince: '2025-10-01T00:00' });
+  try {
+    const f = path.join(proj, 'docs', '待办.md');
+    let s = '';
+    for (let i = 1; i <= 9; i++) s += '## [ ] [流程管理员→调试工程师] WIP 票 ' + i + '（2026-11-03 06:00 UTC+8）\n\n**票号**：T-20261103-D0' + i + '\n**负责人**：调试工程师｜**验收方**：流程管理员\n**授权强度**：explicit\n**验收方式**：`node x`\n\n';
+    writeFileSync(f, s);
+    const disp = path.join(proj, 'tools', 'ticket-dispatch.mjs');
+    let out = '', code = 0;
+    try { out = execFileSync(process.execPath, [disp, '--board', f], { encoding: 'utf8', stdio: 'pipe' }); }
+    catch (e) { code = e.status; out = String(e.stdout || '') + String(e.stderr || ''); }
+    assert.ok(/机械门拦住 9 张/.test(out), '没有拦住汇总行 ✗：' + out.slice(-300));
+    assert.ok(/held-wip/.test(out), '汇总里要写清是哪道门 ✗');
+    assert.ok([0, 3].includes(code), 'dispatch 看板 exit 应为 0（有活）或 3（无活）✗ 实际 ' + code);
+  } finally { rmSync(proj, { recursive: true, force: true }); }
 });
 
 console.log('');

@@ -30,9 +30,11 @@
  *   ⑨ 新增问题类「票号只在标题」✓（标题里有号、块内没声明 ✗ 否则交接核对会误指"票不存在"✗）
  */
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
+import { createHash as __sha256 } from 'node:crypto';
+const require_hash = (p) => __sha256('sha256').update(readFileSync(p)).digest('hex').slice(0, 8);
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { lintTickets, lintHandoffPointers, buildReport, snapshotOf, queueOf, closedLoop, impersonatedOf, readTextSafe, loadConfig, tsOk, setLineNames, STATE } from './lib/ticket-lint.mjs';
+import { lintTickets, lintHandoffPointers, buildReport, snapshotOf, queueOf, closedLoop, impersonatedOf, readTextSafe, loadConfig, tsOk, setLineNames, STATE, fieldOf } from './lib/ticket-lint.mjs';
 // ★ P0（2026-11-02）：写锁只读检查 —— 陈旧锁 = 上一次写入可能被强杀 ⇒ 票板可能有半截 ✗
 import { inspectLock } from './lib/ticket-write.mjs';
 
@@ -453,5 +455,24 @@ if (WITH_HANDOFF) {
   }
 }
 
+/* ── ★ T-20261103-F06：**规则版本过期提示**（只提示 ✗ 不报错 ✗）──
+   票面建票时记了当时 `.ticketrc.json` 的 sha256 前 8 位；现在对不上 ⇒ 说明规则改过 ⇒ 提示复核 ✓ */
+try {
+  let cur = '无';
+  try {
+    const cfgP = path.join(ROOT, 'docs', '.ticketrc.json');
+    if (existsSync(cfgP)) cur = require_hash(cfgP);
+  } catch (e) { }
+  const stale = tickets.filter((x) => [' ', '~', 'v'].includes(x.state) && String(fieldOf(x, '规则版本') || '').trim() && String(fieldOf(x, '规则版本')).trim() !== cur);
+  if (stale.length) {
+    console.log('');
+    console.log('ℹ 规则版本过期 ' + stale.length + ' 张（当前 ' + cur + '，只提示 ✓ 不报错 ✗）：');
+    for (const x of stale.slice(0, 8)) console.log('  · ' + (x.id || '(无票号)') + '｜票面 ' + String(fieldOf(x, '规则版本')).trim() + '｜' + String(x.title || '').slice(0, 40));
+    console.log('  ⇒ 规则改过 ⇒ 按新规则复核一遍这批票 ✓（结票不需要改票面 ✗）');
+  }
+} catch (e) {
+  // ★ T-20261103-F06 打回后：**静默 catch 是这类 bug 的温床** ✗ 失败也要说 ✗
+  console.warn('规则版本检查失败：' + ((e && e.message) || e));
+}
 console.log('注：这只是结构自检 ✓ 不能证明代码正确或用户满意 ✗');
 finish(0);

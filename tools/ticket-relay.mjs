@@ -29,6 +29,7 @@
 import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, copyFileSync, constants as FS } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createHash } from 'node:crypto';
 import { lintTickets, readTextSafe, checkNames, canonicalName, fieldOf, codeFor, loadConfig, setLineNames } from './lib/ticket-lint.mjs';
 // ★ P0（2026-11-02）：开票也是"改写共享文件" ⇒ 同样要锁与原子写 ✗ 别只保护回票那条路 ✗
 import { writeBoardGuarded } from './lib/ticket-write.mjs';
@@ -150,6 +151,23 @@ const THREAD = String(arg('--thread') || '').trim();
 if (THREAD && !/^[^:\s]+:[^:\s]+$/.test(THREAD)) {
   die('--thread 要写成 source:key ✗ 收到：' + THREAD, '例：--thread dsh:panel-backfill ✓（冒号两边都不许有空格 ✗）');
 }
+/* ★ T-20261103-F06：**授权凭证** ＋ **规则版本**（能自动记的别靠人补 ✗）
+   · `--origin 主人原话` 而没给 `--quote` ⇒ die（给例子）✓ 其它来源不强求 ✓
+   · 建票时把 `docs/.ticketrc.json` 的 sha256 前 8 位写进 `**规则版本**`（没有配置 ⇒ 写「无」）✓ */
+const QUOTE = String(arg('--quote') || '').trim();
+const IS_BOSS = /主人|原话/.test(ORIGIN);
+if (IS_BOSS && !QUOTE) {
+  die('--origin 主人原话 必须同时给 --quote（授权要把原话记下来 ✗ 别只写"主人说" ✗）',
+    '例：--quote "把面板补写修一下" ✓（会写成 `**授权依据**：主人原话「…」（时间）`）');
+}
+const quoStamp = new Date().toLocaleString('sv-SE', { timeZone: 'Asia/Hong_Kong' }).slice(0, 16);
+let RULEVER = '无';
+try {
+  const cfgPath = path.join(ROOT, 'docs', '.ticketrc.json');
+  if (existsSync(cfgPath)) {
+    RULEVER = createHash('sha256').update(readFileSync(cfgPath)).digest('hex').slice(0, 8);
+  }
+} catch (e) { RULEVER = '无'; }
 const block = [
   '## [ ] [' + FROM_N + '→' + TO_N + '] ' + TITLE + '（' + stamp + '）',
   '',
@@ -157,6 +175,8 @@ const block = [
   '**负责人**：' + TO_N + '｜**验收方**：' + FROM_N,
   ...(THREAD ? ['**线程**：' + THREAD] : []),
   '**授权强度**：' + AUTHZ + (ORIGIN ? '（来源：' + ORIGIN + '）' : '（缺省 inferred ✗ 来源没写 ⇒ 先当"自己推断的"✓）'),
+  ...(QUOTE ? ['**授权依据**：' + (IS_BOSS ? '主人原话' : ORIGIN || '来由') + '「' + QUOTE + '」（' + quoStamp + '）'] : []),
+  '**规则版本**：' + RULEVER,
   '**阻塞**：无',
   '',
   '**来由**：' + (WHY || '主人传话 ⇒ 按 §2.5「传话即开票」转成票 ✓（光回话＝没办 ✗）'),
