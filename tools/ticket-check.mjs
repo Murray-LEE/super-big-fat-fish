@@ -33,6 +33,8 @@ import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lintTickets, lintHandoffPointers, buildReport, snapshotOf, queueOf, closedLoop, impersonatedOf, readTextSafe, loadConfig, tsOk, setLineNames, STATE } from './lib/ticket-lint.mjs';
+// ★ P0（2026-11-02）：写锁只读检查 —— 陈旧锁 = 上一次写入可能被强杀 ⇒ 票板可能有半截 ✗
+import { inspectLock } from './lib/ticket-write.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -140,6 +142,11 @@ if (!READ.ok) {
   die('读不动票板文件', (fi >= 0 ? '来自命令行 --file' : (cget('board') ? '来自配置文件 board' : '默认路径')), FILE_REL + '：' + why, 'docs/待办.md');
 }
 const text = READ.text;
+// ★ P0（2026-11-02）：票板旁有锁是不是问题 —— 只读检查 ✓ 不删锁、不改时间 ✗
+//   陈旧锁（过期 ＋ 持有进程已死）⇒ 上一次写入可能被强杀 ⇒ 票板可能有半截 ✗ 这是真问题 ✓
+//   未过期的锁 ⇒ 别人正在写，只提示不判问题 ✓（下一秒它就写完了 ✗ 别把正常并发报成故障 ✗）
+const LOCK = inspectLock(FILE);
+const LOCK_BLOCKS = LOCK.exists && LOCK.stale;
 const LINT = lintTickets(text, { since: SINCE, debtSince: DEBT_SINCE });
 const { tickets, problems, realProblems, debtProblems, unknownProblems, knownRealProblems, cnt, trial, debtSince } = LINT;
 const QUEUE = argv.includes('--queue');
@@ -158,13 +165,19 @@ const STRICT = argv.includes('--strict');
 //   **不改原始判定** ✗ JSON 里 `unknown` 照旧、另加 `assumedDebt: true` ✓ 首屏必须喊出来 ✗
 const ASSUME_DEBT = argv.includes('--assume-debt');
 const gateProblems = () => (ASSUME_DEBT ? realProblems.filter((p) => !p.unknown) : realProblems);
-const STRICT_FAILS = () => STRICT && gateProblems().length > 0;
+const STRICT_FAILS = () => STRICT && (gateProblems().length > 0 || LOCK_BLOCKS);
 /** 唯一出口 ✓ 所有退出都过这里，STRICT 才能盖住每个分支 ✓ */
 const finish = (code) => {
   if (STRICT_FAILS()) {
-    console.error('✗ --strict：**真问题 ' + gateProblems().length + ' 条**'
-      + (ASSUME_DEBT ? '（`--assume-debt`：unknown 不计入 ✓）' : '')
-      + ' ⇒ exit 1 ✓（只读 ✓ 未改任何文件 ✓）');
+    if (LOCK_BLOCKS) {
+      console.error('✗ --strict：**票板旁有陈旧锁** ' + path.relative(ROOT, LOCK.path)
+        + (LOCK.info ? '（' + (LOCK.info.who || '未知') + ' · pid ' + LOCK.info.pid + ' · ' + new Date(LOCK.info.at).toLocaleString('zh-CN') + '）' : '')
+        + ' ⇒ 上一次写入可能被强杀 ✓ 先确认票板没半截，再删锁 ✗ ⇒ exit 1 ✓（只读 ✓ 未改任何文件 ✓）');
+    } else {
+      console.error('✗ --strict：**真问题 ' + gateProblems().length + ' 条**'
+        + (ASSUME_DEBT ? '（`--assume-debt`：unknown 不计入 ✓）' : '')
+        + ' ⇒ exit 1 ✓（只读 ✓ 未改任何文件 ✓）');
+    }
     process.exit(1);
   }
   process.exit(code);
@@ -239,6 +252,20 @@ if (QUEUE) {
   if (q.missing.length) console.log('');
   if (q.missing.length) console.log('⚠ 待处理里 **' + q.missing.length + ' 张没写负责人** ✗ 没人知道该谁动 ✓ 新票请补 `负责人：X｜验收方：Y` ✓ 老票不回填 ✗');
   if (q.missingAcceptor.length) console.log('⚠ 待验收里 **' + q.missingAcceptor.length + ' 张没写验收方** ✗ 回票了但没人知道该谁验 ✓');
+  // ★ P1（2026-11-02）：派活状态 —— 这不是"该谁动"，是"该催谁" ✗ 两者混在一张清单里会互相淹没 ✗
+  const dh = Number((CFG.cfg && CFG.cfg.loop && CFG.cfg.loop.dispatchHours) || 24);
+  if (q.dispatched && q.dispatched.length) {
+    console.log('');
+    console.log('【已派活未回票 ' + q.dispatched.length + ' 张】**该催的是「派出方」**（阈值 ' + dh + 'h ✓ `docs/.ticketrc.json` 的 loop.dispatchHours 可改）');
+    for (const r of q.dispatched) {
+      const d = r.dispatch[r.dispatch.length - 1];
+      const hrs = d && d.atMs ? Math.round((Date.now() - d.atMs) / 3600000) : null;
+      const flag = hrs === null ? '⚠ 派活记录**没写时间** ⇒ 催不了 ✗ 补成 `**派活**：@线 YYYY-MM-DD HH:MM` ✓'
+        : (hrs >= dh ? '**已 ' + hrs + 'h 未回票** ✗ 该催了 ✓' : '已 ' + hrs + 'h（未到阈值 ✓）');
+      console.log('  L' + String(r.line).padEnd(5) + '[' + r.route + '] ' + r.title.slice(0, 40));
+      console.log('         → 派给 ' + (d && d.target ? '@' + d.target : '（没写目标 ✗）') + '｜' + flag + (r.id ? '｜' + r.id : ''));
+    }
+  }
   console.log('');
   console.log('注：这只是"谁该动"的清单 ✓ 不代表做没做对 ✗');
   finish(0);
@@ -256,9 +283,13 @@ if (JSONOUT) {
   console.log(JSON.stringify(buildReport(
     LINT,   // ★ v1.10.7（GPT N01/N11）：**必须把完整结果交进去** ✗ 重拼对象会漏字段 ✗
     { file: path.relative(ROOT, FILE).split(path.sep).join('/'), handoff: h, snapshot: SNAP,
+      lock: { exists: LOCK.exists, stale: LOCK_BLOCKS, ageMs: LOCK.ageMs, holder: LOCK.info || null },
       scope: { problemFiles: [FILE_REL], handoffFiles: h ? [h.file] : [], archiveLinted: false, archiveFileAsBoard: IS_ARCHIVE },
       config: { source: CFG.source || '(默认值)', debtSince: DEBT_SINCE, since: SINCE },
-      assumeDebt: ASSUME_DEBT }
+      assumeDebt: ASSUME_DEBT,
+      // ★ P6（2026-11-02）：这道门**过没过**必须是机器可读的 ✓ 别让下游去解析 stderr ✗
+      exitCode: (STRICT && (gateProblems().length > 0 || LOCK_BLOCKS)) ? 1 : 0,
+      gates: { strict: STRICT, strictFails: gateProblems().length, staleLock: !!LOCK_BLOCKS } }
   ), null, 2));
   finish(0);
 }
@@ -281,6 +312,24 @@ if (CFG.source) {
     : '配置：' + CFG.source + '（debtSince=' + DEBT_SINCE + (cget('since') ? ' · since=' + SINCE : '') + '）✓ 命令行参数可临时覆盖 ✓');
 }
 console.log('状态：待处理 ' + cnt[' '] + '｜处理中 ' + cnt['~'] + '｜待验收 ' + cnt.v + '｜已完成 ' + cnt.x + '｜已取消 ' + cnt['-'] + (cnt['?'] ? '｜**老格式 ' + cnt['?'] + '** ✗' : ''));
+// ★ P5（2026-11-02）：结票堆太多 ⇒ 票板变长、--queue/--loop 变慢（README 的"已知边界"✓ 现在有工具了 ✓）
+//   只提示不自动搬 ✗ 归档会改共享文件，必须人来定 ✓
+if ((cnt.x + cnt['-']) >= 30) {
+  console.log('· 结票已有 ' + (cnt.x + cnt['-']) + ' 张（完成 ' + cnt.x + ' ／ 作废 ' + cnt['-'] + '）⇒ 建议归档：`node tools/ticket-archive.mjs`（先预演 ✓ 加 --write 才搬 ✓）');
+}
+// ★ P0（2026-11-02）：锁状态（只读 ✓）
+if (LOCK.exists) {
+  const age = LOCK.ageMs == null ? '' : '｜已存在 ' + Math.round(LOCK.ageMs / 60000) + ' 分钟';
+  if (LOCK_BLOCKS) {
+    console.log('⚠ **票板旁有陈旧锁**：' + path.relative(ROOT, LOCK.path)
+      + (LOCK.info ? '（' + (LOCK.info.who || '未知') + ' · pid ' + LOCK.info.pid + ' · ' + new Date(LOCK.info.at).toLocaleString('zh-CN') + (LOCK.info.host ? ' · ' + LOCK.info.host : '') + '）' : '')
+      + age);
+    console.log('　⇒ 含意：上一次写入**没走完** ✗ 票板可能被截断 ✓ 先比对快照（`.backups/`）再决定，别直接删锁 ✗');
+    console.log('　⇒ 确认票板完好后：`del ' + path.relative(ROOT, LOCK.path) + '` ✓ 或直接再写一次（会自动回收 ✓）');
+  } else {
+    console.log('· 写锁：' + path.relative(ROOT, LOCK.path) + '（另一个进程正在写，属正常并发 ✓ 只提示不判问题 ✓）');
+  }
+}
 
 if (!problems.length) {
   console.log('✅ 没有发现问题');

@@ -19,6 +19,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lintTickets } from './lib/ticket-lint.mjs';
 import { planMoves, findReplyRecords, applyAllMoves, checkConserved, closeTicket, writeBackup } from './lib/ticket-move.mjs';
+// ★ P0（2026-11-02）：写入的互斥与原子性 —— 上面那次「内容比对」挡不住两人同时通过比对 ✗
+import { writeBoardGuarded } from './lib/ticket-write.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -270,7 +272,28 @@ console.log('· 内容守恒：✅ 非空行逐行一致（' + cons.afterNonEmpt
 if (CLOSE && !closeErr) console.log('· 结票：' + CLOSE + ' `[v]` → `[x]` ✓（块内确有回票记录 ✓）');
 if (closeErr) { console.error('✗ 结票被拒：' + closeErr + ' ⇒ 只搬不结 ✓'); process.exitCode = 1; }
 
-writeFileSync(FILE, after, 'utf8');
+// ★ P0（2026-11-02）：锁 ＋ 原子替换 ＋ 锁内二次比对
+//   上面 247 行那次比对只挡住"我读完别人已经写完"，挡不住**两人同时通过比对**再各写一份 ⇒
+//   A 读→B 读→A 通过→B 通过→A 写→B 写 ⇒ A 的票静默消失 ✗（快照里有，但没人去翻 ✗）
+const W = writeBoardGuarded({ file: FILE, before: RAW_BEFORE, after, who: 'ticket-reply' });
+if (!W.ok) {
+  if (W.code === 'CHANGED') {
+    console.error('✗ 锁内复核发现票板已被改过（' + W.beforeSha + ' → ' + W.nowSha + '）⇒ **没写盘** ✗ 请重新预演 ✓');
+  } else if (W.code === 'LOCKED') {
+    const h = (W.lock && W.lock.held) || null;
+    console.error('✗ 票板正被另一个进程写：' + (h
+      ? (h.who || '未知') + ' · pid ' + h.pid + ' · ' + new Date(h.at).toLocaleString('zh-CN') + (h.host ? ' · ' + h.host : '')
+      : '锁文件存在但读不出内容') + ' ⇒ **没写盘** ✗');
+    console.error('  ⇒ 锁：' + path.relative(ROOT, (W.lock && W.lock.path) || '') + ' ✓ 确认对方已停再删 ✓ 过期锁会在下次写入时自动回收 ✓');
+  } else {
+    console.error('✗ 写盘失败（' + W.code + '）' + (W.detail ? '：' + W.detail : '') + ' ⇒ **没写盘** ✗');
+  }
+  process.exit(1);
+}
+if (W.reclaimed) {
+  console.error('⚠ 回收了一条**陈旧锁**（' + (W.reclaimed.who || '未知') + ' · pid ' + W.reclaimed.pid + '）'
+    + '⇒ 上次写入可能被强杀 ✓ 建议跑一次 ticket-check 看票板有没有半截 ✗');
+}
 
 // ── 搬完自检 ─────────────────────────────────────────────────
 const lintAfter = lintTickets(readFileSync(FILE, 'utf8'), { since: '2026-10-25' }).problems;

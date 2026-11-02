@@ -30,6 +30,8 @@ import { readFileSync, writeFileSync, existsSync, statSync, mkdirSync, copyFileS
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { lintTickets, readTextSafe, checkNames, canonicalName, fieldOf, codeFor, loadConfig, setLineNames } from './lib/ticket-lint.mjs';
+// ★ P0（2026-11-02）：开票也是"改写共享文件" ⇒ 同样要锁与原子写 ✗ 别只保护回票那条路 ✗
+import { writeBoardGuarded } from './lib/ticket-write.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 {
@@ -201,7 +203,23 @@ if (recheck !== text) {
   console.error('  ⇒ 重新跑一次这条命令 ✓ 备份在 ' + path.relative(ROOT, bak) + ' 未用 ✓');
   process.exit(1);
 }
-writeFileSync(FILE, next);
+// ★ P0（2026-11-02）：锁 ＋ 原子替换 ＋ 锁内二次比对（与 ticket-reply 同一套 ✓）
+const W = writeBoardGuarded({ file: FILE, before: text, after: next, who: 'ticket-relay' });
+if (!W.ok) {
+  if (W.code === 'CHANGED') {
+    console.error('✗ 锁内复核发现票板已被改过（' + W.beforeSha + ' → ' + W.nowSha + '）⇒ **没写盘** ✗ 重跑一次 ✓ 备份 ' + path.relative(ROOT, bak) + ' 未用 ✓');
+  } else if (W.code === 'LOCKED') {
+    const h = (W.lock && W.lock.held) || null;
+    console.error('✗ 票板正被另一个进程写：' + (h
+      ? (h.who || '未知') + ' · pid ' + h.pid + ' · ' + new Date(h.at).toLocaleString('zh-CN') + (h.host ? ' · ' + h.host : '')
+      : '锁文件存在但读不出内容') + ' ⇒ **没写盘** ✗');
+    console.error('  ⇒ 锁：' + path.relative(ROOT, (W.lock && W.lock.path) || '') + ' ✓ 确认对方已停再删 ✓ 过期锁下次写入自动回收 ✓');
+  } else {
+    console.error('✗ 写盘失败（' + W.code + '）' + (W.detail ? '：' + W.detail : '') + ' ⇒ **没写盘** ✗');
+  }
+  process.exit(1);
+}
+if (W.reclaimed) console.error('⚠ 回收了一条**陈旧锁**（' + (W.reclaimed.who || '未知') + ' · pid ' + W.reclaimed.pid + '）⇒ 上次写入可能被强杀 ✓');
 console.log('════ 传话 → 开票（**已写入** ⚠）════');
 console.log('  ✓ ' + ID + '  ' + FROM_N + ' → ' + TO_N + '｜' + TITLE);
 console.log('  ✓ 备份：' + path.relative(ROOT, bak));
