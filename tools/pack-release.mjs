@@ -103,12 +103,41 @@ if (CHECK) {
   for (const p of workingTreeCandidates()) {
     if (!inPkg.has(p)) drift.push('工作树有、包里没有：' + p);
   }
+
+  /* ── 第 4 件：**文档里的版本号**不许过期（2026-11-02 补） ──
+     现场：README 里写着 `v1.10.41` 的示例命令、目录树写着 `v1.10.50`，而 dist 已经到 v1.10.52 ✗
+     外面的人照着抄会拿到一个不存在的文件名 ✗ ⇒ 文档里要么写占位符 `<版本>`，要么写**当前最新** ✓ */
+  const distDir = path.join(ROOT, 'dist');
+  const versions = existsSync(distDir)
+    ? readdirSync(distDir).map((f) => (f.match(/v(\d+\.\d+\.\d+)/) || [])[1]).filter(Boolean)
+    : [];
+  const latestVer = versions.sort((a, b) => a.localeCompare(b, 'en', { numeric: true })).pop() || '';
+  const docDrift = [];
+  // 只看 README：docs/ 里的规范与修复清单**本来就记着历史版本号**（v1.10.36…v1.10.40），改了反而是抹掉历史 ✗
+  const DOCS = ['README.md'];
+  for (const rel of DOCS) {
+    const abs = path.join(ROOT, rel.split('/').join(path.sep));
+    if (!existsSync(abs)) continue;
+    const t = readFileSync(abs, 'utf8');
+    for (const m of t.matchAll(/\bv(\d+\.\d+\.\d+)\b/g)) {
+      if (latestVer && m[1] !== latestVer) docDrift.push(rel + ' 写了 v' + m[1] + '（最新是 v' + latestVer + '）');
+    }
+  }
+
   console.log('比较范围：tools/ 下 ' + PKG.files.filter((f) => inScope(f.p)).length + ' 个文件 ✓（另有 ' + carried.length + ' 个语料文件：README／docs，打包时原样带过去 ✓ 不参与比较 ✗）');
   console.log('');
-  if (!drift.length) {
+  if (!drift.length && !docDrift.length) {
     console.log('✅ dist 与工作树一致（' + PKG.files.length + ' 个文件，bundleId ' + PKG.bundleId + '）⇒ 不需要重打包 ✓');
+    console.log('✅ 文档里的版本号与最新包一致（v' + latestVer + '）✓');
     process.exit(0);
   }
+  if (docDrift.length) {
+    console.log('⚠ **文档里的版本号过期 ' + docDrift.length + ' 处** ⇒ 外面的人照抄会拿到不存在的文件 ✗');
+    for (const d of docDrift.slice(0, 10)) console.log('  · ' + d);
+    console.log('  ⇒ 改成占位符 `<版本>`，或改成最新 v' + latestVer + ' ✓（别写死旧版本 ✗）');
+    console.log('');
+  }
+  if (!drift.length) process.exit(1);
   console.log('⚠ **dist 与工作树不一致 ' + drift.length + ' 处** ⇒ 发行包已落后于源码 ✗');
   for (const d of drift.slice(0, 20)) console.log('  · ' + d);
   if (drift.length > 20) console.log('  · …还有 ' + (drift.length - 20) + ' 处');
