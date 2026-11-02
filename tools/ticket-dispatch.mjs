@@ -26,6 +26,7 @@ import { fileURLToPath } from 'node:url';
 import { parseTickets, queueOf } from './lib/ticket-lint.mjs';
 import { writeBoardGuarded, writeAtomic } from './lib/ticket-write.mjs';
 import { W, glossaryText } from './lib/theme.mjs';
+import { loadExperiences, matchExperiences } from './lib/experience.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -39,6 +40,7 @@ const WRITE = flag('--write');
 const JSONOUT = flag('--json');
 const HOURS = Number(arg('--hours', '24'));          // 派出去多久没回票算"该催"
 const DRY = flag('--dry-run');
+const EXP_DIR = path.resolve(arg('--experiences', path.join(ROOT, 'docs/经验')));   // ★ T-20261103-F04
 
 if (!existsSync(BOARD)) {
   console.error('✗ 找不到票板：' + BOARD + '\n  用 --board <路径> 指定');
@@ -87,12 +89,26 @@ for (const t of q.missing || []) push('缺负责人', t, '?', '票面没写负�
 
 const actionable = rows.filter(r => ['待派', '该催', '待验收'].includes(r.kind));
 
+/* ── ★ T-20261103-F04：**经验库 · 命中才注入** ──
+   进消息的只有 id ＋ action 一行 ✗ 正文永远不进 ✗（这是这套设计唯一的价值 ✓）
+   坏条目 ⇒ 跳过并 warn ✗ 不许让派活崩 ✗ */
+const EXP = loadExperiences(EXP_DIR);
+for (const b of EXP.bad) console.error('⚠ 经验条目跳过：' + b.file + '（' + b.why + '）');
+if (EXP.list.length) {
+  for (const r of rows) {
+    const text = String(r.title || '') + ' ' + String(r.kind || '') + ' ' + String(r.why || '');
+    r.experiences = matchExperiences(text, EXP.list, 3).map((e) => ({ id: e.id, action: e.action }));
+  }
+}
+
 if (JSONOUT) {
   console.log(JSON.stringify({
     schemaVersion: 1, agent: AGENT, board: path.relative(ROOT, BOARD) || BOARD,
     generatedAt: new Date().toISOString(), thresholdHours: HOURS,
     counts: rows.reduce((a, r) => (a[r.kind] = (a[r.kind] || 0) + 1, a), {}),
-    actionable: actionable.length, rows,
+    actionable: actionable.length,
+    experiences: EXP.list.length,
+    rows: rows.map((r) => Object.assign({}, r, { experiences: r.experiences || [] })),
   }, null, 1));
 } else if (flag('--glossary')) {
   console.log(`═══ ${AGENT} · 术语表（小彩蛋） ═══\n`);
@@ -113,6 +129,7 @@ if (JSONOUT) {
       console.log('\n调度会话要做的事（一次一张，别群发）：');
       for (const r of actionable.slice(0, 8)) {
         console.log(`  · cross_session_send → ${r.who}：「${r.id}｜${r.title}（${r.kind}）${r.thread ? '〔线程 ' + r.thread + '〕' : ''}」`);
+        for (const e of (r.experiences || []).slice(0, 3)) console.log(`      └ 经验：${e.id} —— ${e.action}`);
       }
     }
   }
