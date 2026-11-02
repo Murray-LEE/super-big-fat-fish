@@ -20,7 +20,7 @@
  *
  * 退出码：0 成功 ／ 2 参数或路径问题
  */
-import { mkdtempSync, mkdirSync, cpSync, writeFileSync, existsSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, cpSync, writeFileSync, existsSync, readFileSync, rmSync, readdirSync, copyFileSync } from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
@@ -71,5 +71,29 @@ const okTicket = '## [x] [调试工程师→卡片工程师] 临时项目里的�
   + '> ✅ **【03:10 · 调试工程师】** 回「临时项目里的合规票」（T-20261027-D01）\n';
 writeFileSync(path.join(dir, 'docs', '待办.md'), seed ? readFileSync(path.resolve(seed), 'utf8') : okTicket);
 
-console.error('✓ 临时项目已建：line=' + line + ' debtSince=' + debtSince + (seed ? ' board=种子' : ' board=合规样例'));
+/* ★ T-20261103-F05：**把本仓 docs/经验 一起带过去** ✗ 只有这条测试路径以前漏了 ✗
+   现场：样例项目没有 docs/经验 ⇒ 在里面跑 ticket-dispatch 永远「命中 0 条」⇒ 看起来像经验库没生效 ✗
+   规矩：**有则拷、无则静默跳过**（源目录不存在 ⇒ 不建目录、不报错、exit 0）✓ */
+let expN = 0;
+try {
+  const expSrc = path.join(ROOT, 'docs', '经验');
+  if (existsSync(expSrc)) {
+    const mds = readdirSync(expSrc).filter((f) => /\.md$/i.test(f));
+    if (mds.length) {
+      mkdirSync(path.join(dir, 'docs', '经验'), { recursive: true });
+      for (const f of mds) copyFileSync(path.join(expSrc, f), path.join(dir, 'docs', '经验', f));
+      expN = mds.length;
+    }
+  }
+} catch (e) { console.error('⚠ 经验库没拷过去（不影响样例）：' + ((e && e.message) || e)); }
+
+if (expN) {
+  writeFileSync(path.join(dir, 'README.md'),
+    '# 临时样例项目（mk-proj 生成）\n\n'
+    + '- 票板：`docs/待办.md`｜配置：`docs/.ticketrc.json`\n'
+    + '- **自带 ' + expN + ' 条种子经验**（`docs/经验/*.md`）⇒ 可直接测命中，不用手拷 ✓\n'
+    + '- 派活：`node tools/ticket-dispatch.mjs --board docs/待办.md`\n', 'utf8');
+}
+
+console.error('✓ 临时项目已建：line=' + line + ' debtSince=' + debtSince + (seed ? ' board=种子' : ' board=合规样例') + (expN ? '｜经验 ' + expN + ' 条' : '｜无经验库'));
 console.log(dir);

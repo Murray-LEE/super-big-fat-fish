@@ -4,7 +4,9 @@
  *  覆盖：解析 ✓／坏 frontmatter ✗／空触发 ✗／打分 ✓／同分按 id 排序 ✓／limit=3 截断 ✓／坏条目跳过不崩 ✓
  */
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readdirSync, existsSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import os from 'node:os';
 import path from 'node:path';
 import { parseExperience, loadExperiences, matchExperiences } from './lib/experience.mjs';
@@ -91,6 +93,25 @@ expect('9 返回项只有 id/action/score —— 正文永不外泄', () => {
   assert.equal(JSON.stringify(hit).includes('正文不许出去'), false, '正文泄漏了 ✗');
 });
 
+expect('10 mk-proj 造的样例项目自带 docs/经验（源仓有经验时 ≥1 条）', () => {
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  const root = path.resolve(here, '..');
+  const src = path.join(root, 'docs', '经验');
+  if (!existsSync(src) || !readdirSync(src).filter((f) => /\.md$/i.test(f)).length) {
+    console.log('   （源仓没有 docs/经验 ⇒ 本条跳过 ✓）');
+    return;
+  }
+  const out = execFileSync(process.execPath, [path.join(here, 'mk-proj.mjs'), '--line', 'D'], { encoding: 'utf8', stdio: 'pipe' });
+  const proj = String(out).trim().split('\n').pop().trim();
+  try {
+    const dir = path.join(proj, 'docs', '经验');
+    assert.ok(existsSync(dir), '样例项目没有 docs/经验 ✗ ' + proj);
+    const n = readdirSync(dir).filter((f) => /\.md$/i.test(f)).length;
+    assert.ok(n >= 1, '样例项目里经验条数应为 ≥1 ✗ 实际 ' + n);
+  } finally {
+    try { execFileSync(process.execPath, [path.join(here, 'mk-proj.mjs'), '--clean', proj], { stdio: 'pipe' }); } catch (e) { }
+  }
+});
 console.log('');
 console.log((fail ? '⚠ ' : '✅ ') + '经验库自检：通过 ' + pass + ' / 失败 ' + fail);
 process.exit(fail ? 1 : 0);
