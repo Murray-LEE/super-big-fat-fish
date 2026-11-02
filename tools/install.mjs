@@ -212,7 +212,7 @@ if (dispatchResult.asked) {
 }
 say('');
 say('下一步（三件，别省 ✗）：');
-say('  1. 改线名：' + path.join('docs', '.ticketrc.json') + '（默认线名是原作者项目的 ✓ 改完再开票 ✓）');
+say('  1. 改线名：node tools/lines.mjs（默认是鲸尾/鲸鳍/鲸眼彩蛋预设 ✓ 改成你自己的再开票 ✓）');
 say('  2. 开第一张票：node tools/ticket-relay.mjs --from <线A> --to <线B> --title "…" --why "…" --accept "…" --write');
 say('  3. 看板子：node tools/ticket-check.mjs --queue（谁该动）／ --loop（六问闭环）');
 say('');
