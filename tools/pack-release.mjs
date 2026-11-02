@@ -33,6 +33,10 @@ const PACK = argv.includes('--pack');
 const arg = (f, d = '') => { const i = argv.indexOf(f); return i < 0 ? d : String(argv[i + 1] || d); };
 
 const sha256 = (buf) => createHash('sha256').update(buf).digest('hex');
+/* ★ T-20261103-F08：**行尾归一**（仓库 .gitattributes 是 eol=lf ✗ Windows 工作树是 CRLF ✗）
+   现场：CI 从 #27 起连红三次，差值正好是每个 CRLF 多一个字节 ✗ 本地绿、CI 红 ✗
+   ⇒ 打包与比较**两侧都先 \r\n → \n** ✓ bundleId 按归一后的内容算 ✓ 不许把 dist 当二进制糊过去 ✗ */
+const lfBuf = (buf) => Buffer.from(String(buf.toString('utf8')).replace(/\r\n/g, '\n'), 'utf8');
 const rel = (p) => path.relative(ROOT, p).split(path.sep).join('/');
 const die = (msg, hint) => {
   console.error('✗ ' + msg);
@@ -95,7 +99,7 @@ if (CHECK) {
     if (!inScope(f.p)) continue;
     const abs = path.join(ROOT, f.p.split('/').join(path.sep));
     if (!existsSync(abs)) { drift.push('包里有、工作树没有：' + f.p); continue; }
-    const buf = readFileSync(abs);
+    const buf = lfBuf(readFileSync(abs));
     const h = sha256(buf);
     if (h !== f.h) drift.push('内容不一致：' + f.p + '（包 ' + f.h.slice(0, 12) + ' ／ 现 ' + h.slice(0, 12) + '，' + buf.length + ' vs ' + f.n + ' 字节）');
   }
@@ -173,12 +177,12 @@ const wantedTools = [...new Set([
   ...workingTreeCandidates()
 ])].sort();
 
-const files = [...carried];
+const files = [...carried].map((f) => { const buf = lfBuf(Buffer.from(f.b, 'base64')); return { p: f.p, n: buf.length, h: sha256(buf), b: buf.toString('base64') }; });
 const missing = [];
 for (const p of wantedTools) {
   const abs = path.join(ROOT, p.split('/').join(path.sep));
   if (!existsSync(abs) || !statSync(abs).isFile()) { missing.push(p); continue; }
-  const buf = readFileSync(abs);
+  const buf = lfBuf(readFileSync(abs));
   files.push({ p, n: buf.length, h: sha256(buf), b: buf.toString('base64') });
 }
 if (missing.length) die('这些文件在工作树里不存在，不能打进包：' + missing.join('、'), '先补文件，或从清单里删掉 ✓');
