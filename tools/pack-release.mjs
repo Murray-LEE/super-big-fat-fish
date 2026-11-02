@@ -124,6 +124,18 @@ if (CHECK) {
     }
   }
 
+  // ── 第 5 件：README 里**不许出现具体项目的行业词**（2026-11-02 主人指出）
+  //   现场：README 拿「卡」「世界书」「线上平台」举例说明"这是原始项目的背景" ✗
+  //   ⇒ 等于把项目是什么告诉所有人 ✗ 例子一律用中性词 ✓
+  const BANNED = ['世界书', '线上平台', '角色卡', '卡片', '发卡', '卡面', '风月', '酒馆'];
+  const readmePath = path.join(ROOT, 'README.md');
+  if (existsSync(readmePath)) {
+    const rt = readFileSync(readmePath, 'utf8');
+    for (const w of BANNED) {
+      const n = rt.split(w).length - 1;
+      if (n) docDrift.push('README.md 出现行业词「' + w + '」×' + n + '（示例请用中性词：需求／文档／部署）');
+    }
+  }
   console.log('比较范围：tools/ 下 ' + PKG.files.filter((f) => inScope(f.p)).length + ' 个文件 ✓（另有 ' + carried.length + ' 个语料文件：README／docs，打包时原样带过去 ✓ 不参与比较 ✗）');
   console.log('');
   if (!drift.length && !docDrift.length) {
