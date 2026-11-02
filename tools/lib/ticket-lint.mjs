@@ -572,11 +572,30 @@ export function closedLoop(tickets, opt = {}) {
   const acceptHours = Number(opt.acceptHours) > 0 ? Number(opt.acceptHours) : 12;
   const now = opt.now ? new Date(opt.now).getTime() : Date.now();
 
+  /**
+   * 解析票面时间戳。★ 2026-11-02 修（CI 一路红的原因）：
+   *   原来只按**本机时区**构造，票头写的 `UTC+8` 后缀被忽略 ✗
+   *   ⇒ 同一个用例在 +08 机器上绿、在 UTC 的 CI 上红（悬空票 26h 被算成 18h，判成"还没悬空"）
+   *   现在：带 `UTC±N` ／ `±HH:MM` ／ `Z` 后缀 ⇒ 按时区换算 ✓
+   *         不带后缀 ⇒ 仍按本机时区（向后兼容，老票不受影响）✓
+   */
   const parseTs = (s) => {
-    const m = /(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/.exec(String(s || ''));
+    const str = String(s || '');
+    const m = /(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{1,2}):(\d{2}))?/.exec(str);
     if (!m) return null;
-    const d = new Date(+m[1], +m[2] - 1, +m[3], m[4] === undefined ? 12 : +m[4], m[5] === undefined ? 0 : +m[5]);
-    return Number.isNaN(d.getTime()) ? null : d.getTime();
+    const y = +m[1], mo = +m[2] - 1, d = +m[3];
+    const h = m[4] === undefined ? 12 : +m[4];
+    const mi = m[5] === undefined ? 0 : +m[5];
+    const tail = str.slice(m.index + m[0].length);
+    const tz = /(?:UTC|GMT)?\s*([+-])\s*(\d{1,2})(?::?(\d{2}))?|\bZ\b/i.exec(tail);
+    if (tz) {
+      if (/^\s*Z/i.test(tz[0])) return Date.UTC(y, mo, d, h, mi);
+      const sign = tz[1] === '-' ? -1 : 1;
+      const offMin = sign * ((+tz[2]) * 60 + (tz[3] ? +tz[3] : 0));
+      return Date.UTC(y, mo, d, h, mi) - offMin * 60000;
+    }
+    const local = new Date(y, mo, d, h, mi).getTime();
+    return Number.isNaN(local) ? null : local;
   };
   const hoursSince = (t) => {
     const ts = parseTs(t.raw || '');
