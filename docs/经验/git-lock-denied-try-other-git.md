@@ -12,7 +12,7 @@ action: 遇到 `index.lock: Permission denied` 先手动建一次同名文件；
 2. 手动 `New-Item .git\index.lock` **能建**，能删；
 3. 临时仓 `git init` 也报 `".git: Permission denied"`；
 4. `GIT_INDEX_FILE` 换到仓库内 ⇒ 仍然 `.lock: Permission denied`；
-5. 换成另一个 git（`C:\Users\komur\.cache\codex-runtimes\...\git\cmd\git.exe`，2.53.0）⇒ **立刻成功**。
+5. 换成机器上**另一个** git 二进制（版本较新的那个）⇒ **立刻成功**。
 
 结论：不是权限配置问题，是**那个便携版 git 在这台机器上建不了点开头的文件**（`.git` 目录、`.lock` 锁文件）。
 
