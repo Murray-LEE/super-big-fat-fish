@@ -1,6 +1,14 @@
 name: ticket-check
 
-# 票板结构检查：有真问题就挂，别让人肉记着"有没有闭环"
+# 票板结构检查 ＋ 工具自检 ＋ 发行包一致性：有真问题就挂，别让人肉记着"有没有闭环"
+#
+# 2026-11-02 改：
+#   ① 加 **windows-latest** ✗ —— 这套工具有两处只在 Windows 才暴露的缝：
+#      行尾（CRLF/LF 混用会让写盘被拒）与沙箱"新建文件被拒、改写可以"（ticket-reply 的备份回退）✗
+#      只在 ubuntu 上全绿，不代表这两条没坏 ✗
+#   ② Node 矩阵（18／20／22，只在 Linux 上跑）—— Windows 覆盖的是**平台**这条缝，不是 Node 版本 ×
+#   ③ 加写入保护自检（P0 的锁／原子写／锁内比对）✓
+#   ④ 新增 release job：`pack-release --check` —— 改了 tools/ 忘记重打包 ⇒ 直接挂 ✗
 on:
   push:
     branches: [main]
@@ -9,6 +17,49 @@ on:
 
 jobs:
   board:
+    name: 自检与票板（${{ matrix.os }} · node ${{ matrix.node }}）
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        node: ['20']
+        include:
+          - os: ubuntu-latest
+            node: '18'
+          - os: ubuntu-latest
+            node: '22'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      # Windows runner 的默认 shell 是 pwsh ✗ 这里统一用 bash ✓（`|| true` 这类写法在 pwsh 里不成立）
+      - name: 自检用例（工具本身没坏）
+        shell: bash
+        run: |
+          node tools/ticket-check-selftest.mjs
+          node tools/ticket-reply-selftest.mjs
+          node tools/write-guard-selftest.mjs
+
+      - name: 票板结构检查
+        shell: bash
+        run: node tools/ticket-check.mjs --strict
+
+      # P6：`--json` 是下游（watcher／派活脚本）的契约 ⇒ 得有人守着"字段只加不改名" ✓
+      - name: JSON 契约（schemaVersion 1 ＋ 三条恒等式）
+        shell: bash
+        run: node tools/json-contract-check.mjs --strict
+
+      - name: 六问闭环（只报告，不挡）
+        if: always()
+        shell: bash
+        run: node tools/ticket-check.mjs --loop || true
+
+  release:
+    name: 发行包与源码一致
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -17,14 +68,6 @@ jobs:
         with:
           node-version: '20'
 
-      - name: 自检用例（工具本身没坏）
-        run: |
-          node tools/ticket-check-selftest.mjs
-          node tools/ticket-reply-selftest.mjs
-
-      - name: 票板结构检查
-        run: node tools/ticket-check.mjs --strict
-
-      - name: 六问闭环（只报告，不挡）
-        if: always()
-        run: node tools/ticket-check.mjs --loop || true
+      # 判据：dist 最新包里的 tools/ 与工作树逐字节一致 ＋ 没有"新加了文件却没进包" ✗
+      - name: dist 与工作树一致
+        run: node tools/pack-release.mjs --check
