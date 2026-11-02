@@ -25,6 +25,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseTickets, queueOf } from './lib/ticket-lint.mjs';
 import { writeBoardGuarded } from './lib/ticket-write.mjs';
+import { W, glossaryText } from './lib/theme.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const argv = process.argv.slice(2);
@@ -92,10 +93,13 @@ if (JSONOUT) {
     counts: rows.reduce((a, r) => (a[r.kind] = (a[r.kind] || 0) + 1, a), {}),
     actionable: actionable.length, rows,
   }, null, 1));
+} else if (flag('--glossary')) {
+  console.log(`═══ ${AGENT} · 术语表（小彩蛋） ═══\n`);
+  console.log(glossaryText());
 } else {
-  console.log(`═══ ${AGENT} · 派活看板 ═══`);
+  console.log(`═══ ${AGENT} · 派活看板（${W.pond}巡检） ═══`);
   console.log(`票板：${path.relative(process.cwd(), BOARD) || BOARD}｜票 ${tickets.length} 张｜阈值 ${HOURS}h\n`);
-  if (!rows.length) console.log('（无事可做 ✓ 票板干净）');
+  if (!rows.length) console.log(`（${W.pond}干净 ✓ 没有要喂的活）`);
   else {
     const order = { '待派': 0, '该催': 1, '待验收': 2, '已派待回': 3, '缺验收方': 4, '缺负责人': 5 };
     rows.sort((a, b) => (order[a.kind] - order[b.kind]) || String(a.id).localeCompare(String(b.id)));
@@ -103,7 +107,7 @@ if (JSONOUT) {
       console.log(`${r.kind.padEnd(5)}｜${String(r.id || '—').padEnd(16)}｜→ ${String(r.who).padEnd(10)}｜${r.title}`);
       if (r.why) console.log(`        └ ${r.why}`);
     }
-    console.log(`\n可派/可催/可验：${actionable.length} 张`);
+    console.log(`\n可派/可催/可验：${actionable.length} 张（${W.chum} ${actionable.length} 条）`);
     if (actionable.length) {
       console.log('\n调度会话要做的事（一次一张，别群发）：');
       for (const r of actionable.slice(0, 8)) {

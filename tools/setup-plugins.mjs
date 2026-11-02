@@ -22,6 +22,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import os from 'node:os';
+import { W } from './lib/theme.mjs';
 import path from 'node:path';
 
 const argv = process.argv.slice(2);
@@ -123,14 +124,14 @@ if (CHECK) {
   process.exit(2);
 }
 
-console.log('═══ 派活环境体检 ═══');
+console.log('═══ 派活环境体检（' + W.agent + ' 的水质检测） ═══');
 console.log(`Node            ${process.versions.node} ${nodeOk ? '✓' : '✗（要求 ≥18）'}`);
 console.log(`DSH 数据目录     ${HOME} ${existsSync(HOME) ? '✓' : '✗'}`);
 console.log(`DSH 程序         ${exe || '（没定位到，可设 DSH_EXE）'} ${exe ? '✓' : '✗'}`);
 console.log(`已装 profile     ${installed.length ? installed.map(x => x.profile + '@' + x.version).join('、') : '（无）'}`);
 console.log(`目标             ${PKG}@${VER} → profile «${PROFILE}»`);
 
-console.log('\n═══ 该做什么 ═══');
+console.log('\n═══ 该做什么（照做就能下水） ═══');
 steps.forEach(s => console.log(' ' + s));
 
 if (!RUN) {

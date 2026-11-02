@@ -217,3 +217,6 @@ say('  2. 开第一张票：node tools/ticket-relay.mjs --from <线A> --to <线B
 say('  3. 看板子：node tools/ticket-check.mjs --queue（谁该动）／ --loop（六问闭环）');
 say('');
 say('装上 DSH 侧的派活插件后，回票会自动归位；没装也能用，只是要人敲 ticket-reply ✓（见 docs/开票工作流-优化版 §2.6）');
+say('');
+say('  装插件前先体检：node tools/setup-plugins.mjs（缺什么它会直接打印该跑的命令）');
+say('  派活调度者：超级大肥鱼 —— node tools/ticket-dispatch.mjs（术语表：--glossary）');
