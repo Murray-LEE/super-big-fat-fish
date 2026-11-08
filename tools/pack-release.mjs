@@ -44,12 +44,45 @@ const die = (msg, hint) => {
   process.exit(2);
 };
 
+/** 版本串 → 可排序的整数（**必须返回 number** ✓ 见 T-20261109-M01）
+ *  埋过的雷：`m[1] * 1e6 + m[2] * 1e3 + m[3]` —— 前两项先被乘成 number，第三项 `m[3]` 还是字符串
+ *  ⇒ 整个表达式走**字符串拼接** ⇒ 返回值是 string ⇒ 下面 `ver(b) - ver(a)` 靠减法隐式转数字，
+ *     实际比的是「拼接后的十进制数」✗
+ *     'v1.9.99' → '100900099'（一亿）｜'v1.10.0' → '10100000'（一千万）⇒ 1.9.99 被判成**更新** ✗
+ *  触发条件：major/minor 不同 **且** patch 位数不同（拼接让 patch 位数变成 10 倍/100 倍的量纲差 ✗）
+ *  ⇒ 三位**统一**包 Number ✓ 只包 m[3] 也算对，但写法不齐，下一个人照样能改回去 ✗
+ *  ⇒ 并抽到模块级 ＋ `--selftest`，把顺序钉在 CI 里 ✗ 藏在 newestPackage() 里命令行验不了 ✗ */
+const ver = (n) => {
+  const m = /v(\d+)\.(\d+)\.(\d+)/.exec(n);
+  return m ? Number(m[1]) * 1e6 + Number(m[2]) * 1e3 + Number(m[3]) : -1;
+};
+
+/* ── --selftest：版本比较的可跑断言（T-20261109-M01）──────────────────────
+   判据不只是"现在对"，还有"改回错写法会红" ✓ 现场验过：把 m[3] 的 Number 去掉 ⇒ 第 1、2 条必炸 ✗ */
+if (argv.includes('--selftest')) {
+  const cases = [
+    ['v1.9.99', 'v1.10.0'],     // patch 两位 vs 一位 ⇒ 旧写法正是在这里翻车（1.9.99 被判更新）
+    ['v1.10.99', 'v1.11.0'],    // minor 进位 ＋ patch 位数不同 ⇒ 同一种翻车的另一种形状
+    ['v1.10.9', 'v1.10.72'],
+    ['v1.10.99', 'v1.10.100'],  // patch 三位 ⇒ 别只修到两位就收手
+  ];
+  let bad = 0;
+  for (const [older, newer] of cases) {
+    const a = ver(older);
+    const b = ver(newer);
+    const ok = typeof a === 'number' && typeof b === 'number' && a < b;
+    console.log((ok ? '✓' : '✗') + ' ' + older + ' < ' + newer + '（' + a + ' < ' + b + '）');
+    if (!ok) bad++;
+  }
+  console.log(bad ? '✗ 版本比较坏了 ' + bad + ' / ' + cases.length + ' 条' : '✓ 版本比较 ' + cases.length + ' 条全过');
+  process.exit(bad ? 1 : 0);
+}
+
 /** 最新的 dist 单文件包（按名字里的版本号排 ✓ 不靠 mtime ✗ mtime 在 clone/解压后会变）*/
 const newestPackage = () => {
   if (!existsSync(DIST)) die('没有 dist/ 目录', '先有至少一个已发行的包，才能把它当模板 ✓');
   const list = readdirSync(DIST).filter((f) => /\.mjs$/.test(f));
   if (!list.length) die('dist/ 里没有 .mjs 包', '先放一个已发行的单文件包当模板 ✓');
-  const ver = (n) => { const m = /v(\d+)\.(\d+)\.(\d+)/.exec(n); return m ? m[1] * 1e6 + m[2] * 1e3 + m[3] : -1; };
   list.sort((a, b) => ver(b) - ver(a));
   return path.join(DIST, list[0]);
 };

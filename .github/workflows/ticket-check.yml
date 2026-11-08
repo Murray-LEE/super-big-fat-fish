@@ -43,6 +43,8 @@ jobs:
           node tools/ticket-check-selftest.mjs
           node tools/ticket-reply-selftest.mjs
           node tools/write-guard-selftest.mjs
+          # 版本比较（T-20261109-M01）：ver() 曾经是字符串拼接 ⇒ patch 位数不同就把 1.9.99 排到 1.10.0 前面
+          node tools/pack-release.mjs --selftest
 
       - name: 票板结构检查
         shell: bash
